@@ -1,0 +1,40 @@
+html, body, #root {
+  margin: 0;
+  min-height: 100%;
+  font-family: Inter, 'Segoe UI', sans-serif;
+  background: #f4f7fb;
+  color: #14213d;
+}
+
+body {
+  min-height: 100vh;
+}
+
+a {
+  text-decoration: none;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+.MuiDrawer-paper {
+  background: #ffffff !important;
+}
+
+.MuiListItemButton-root {
+  border-radius: 10px;
+  margin: 4px 10px;
+}
+
+.MuiChip-root {
+  font-family: 'SFMono-Regular', Consolas, monospace;
+}
+
+.MuiInputBase-root,
+.MuiInputLabel-root,
+.MuiFormHelperText-root,
+.MuiTypography-root,
+.MuiCard-root {
+  font-family: Inter, 'Segoe UI', sans-serif;
+}

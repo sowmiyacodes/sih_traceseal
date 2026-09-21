@@ -1,0 +1,22 @@
+{
+  "attribution_confirmed": true,
+  "case_id": "CASE-20260921194607-0C2D92",
+  "chain_valid": true,
+  "created_at": "2026-09-21T19:46:07.961650+00:00",
+  "event_id": "EVT-A4CC040C2D92",
+  "evidence_sha3_256": "WM-AB5E7AF1236CC90C",
+  "ledger_match": true,
+  "recipient": {
+    "display_name": "Alice Example",
+    "public_key_fingerprint": "{\"ml_dsa_public\"",
+    "recipient_id": "REC-001"
+  },
+  "signature_valid": true,
+  "watermark": {
+    "algorithm": "DCT",
+    "confidence": 0.99,
+    "detected": true,
+    "page": 1,
+    "watermark_id": "WM-AB5E7AF1236CC90C"
+  }
+}
