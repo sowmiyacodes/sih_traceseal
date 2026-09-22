@@ -117,7 +117,7 @@ def analyze(payload: AnalyzeRequest, user: dict = Depends(require_roles('ADMIN',
         'recipient': {
             'recipient_id': event['recipient_id'],
             'display_name': recipient['name'] if recipient else 'unknown',
-            'public_key_fingerprint': (recipient['public_key'] or '')[:16] if recipient else None,
+            'public_key_fingerprint': event.get('public_key_fingerprint'),
         } if recipient else None,
         'attribution_confirmed': attribution_confirmed,
     }

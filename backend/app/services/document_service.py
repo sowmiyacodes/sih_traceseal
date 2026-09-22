@@ -13,7 +13,7 @@ from sqlalchemy.orm import Session
 
 from app.crypto.hashing import sha3_256_hex
 from app.crypto.key_store import encrypt_private_key_material, decrypt_private_key_material
-from app.crypto.pq import encapsulate, decapsulate
+from app.crypto.pq import encapsulate, decapsulate, register_fallback_kem_keypair
 from app.models.database import SessionLocal
 from app.models.document import Document
 from app.models.recipient_package import RecipientPackage
@@ -163,7 +163,25 @@ class DocumentService:
                 recipient = RecipientService.get_recipient(recipient_id)
                 if recipient is None or not recipient.get('active'):
                     raise ValueError(f'Active recipient not found: {recipient_id}')
+                existing = db.query(RecipientPackage).filter(
+                    RecipientPackage.document_id == document_id,
+                    RecipientPackage.recipient_id == recipient_id,
+                ).first()
+                if existing is not None:
+                    packages.append({
+                        'package_id': existing.package_id,
+                        'document_id': document_id,
+                        'recipient_id': recipient_id,
+                        'kem_algorithm': 'ML-KEM-768',
+                        'wrapped_key_algorithm': 'AES-256-GCM',
+                        'existing': True,
+                    })
+                    continue
                 public_keys = json.loads(recipient['public_key'])
+                private_keys = RecipientService.get_private_keys(recipient_id)
+                if not private_keys or not private_keys.get('ml_kem_private'):
+                    raise ValueError(f'Recipient private key is unavailable: {recipient_id}')
+                register_fallback_kem_keypair(private_keys['ml_kem_private'], public_keys['ml_kem_public'])
                 kem_ciphertext, shared_secret = encapsulate(public_keys['ml_kem_public'])
                 wrapping_key = sha3_256_hex(shared_secret + document_id.encode()).encode()[:32]
                 wrap_nonce = os.urandom(12)
@@ -204,6 +222,11 @@ class DocumentService:
             private_keys = RecipientService.get_private_keys(recipient_id)
             if not private_keys or not private_keys.get('ml_kem_private'):
                 raise ValueError('Recipient private key is unavailable')
+            recipient = RecipientService.get_recipient(recipient_id)
+            if recipient is None:
+                raise ValueError('Recipient record is unavailable')
+            public_keys = json.loads(recipient['public_key'])
+            register_fallback_kem_keypair(private_keys['ml_kem_private'], public_keys['ml_kem_public'])
             shared_secret = decapsulate(private_keys['ml_kem_private'], package.kem_ciphertext)
             wrapping_key = sha3_256_hex(shared_secret + document_id.encode()).encode()[:32]
             wrapped = base64.b64decode(package.wrapped_key)

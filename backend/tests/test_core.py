@@ -194,3 +194,16 @@ def test_one_ciphertext_supports_multiple_isolated_packages():
     assert alice_key == bob_key
     with pytest.raises(ValueError):
         DocumentService.decrypt_recipient_package(uploaded['document_id'], 'REC-NOT-AUTHORIZED')
+
+
+def test_repeated_distribution_keeps_all_recipient_packages():
+    suffix = os.urandom(4).hex().upper()
+    alice = RecipientService.create_recipient(f'Alice-{suffix}', 'Legal')
+    bob = RecipientService.create_recipient(f'Bob-{suffix}', 'Finance')
+    source = SimpleNamespace(filename=f'repeated-{suffix}.txt', file=BytesIO(b'shared ciphertext'))
+    uploaded = DocumentService.upload_document(source)
+    first = DocumentService.create_recipient_packages(uploaded['document_id'], [alice['recipient_id']])
+    second = DocumentService.create_recipient_packages(uploaded['document_id'], [alice['recipient_id'], bob['recipient_id']])
+    assert len(first) == 1
+    assert len(second) == 2
+    assert {package['recipient_id'] for package in second} == {alice['recipient_id'], bob['recipient_id']}

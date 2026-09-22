@@ -14,6 +14,13 @@ except Exception:  # pragma: no cover - fallback for environments without liboqs
 FALLBACK_KEM_KEYS: dict[str, str] = {}
 
 
+def register_fallback_kem_keypair(private_key: str, public_key: str) -> None:
+    """Restore the local fallback mapping after a backend restart."""
+    if oqs is None:
+        FALLBACK_KEM_KEYS[public_key] = private_key
+        FALLBACK_KEM_KEYS[private_key] = public_key
+
+
 def _safe_json(value: Any) -> str:
     return json.dumps(value, separators=(",", ":"), sort_keys=True)
 
@@ -78,6 +85,11 @@ def decapsulate(private_key: str, ciphertext: str) -> bytes:
         return sk.decapsulate(bytes.fromhex(ciphertext))
     public_key = FALLBACK_KEM_KEYS.get(private_key)
     if public_key is None:
-        raise ValueError('Unknown private key')
+        try:
+            public_key = hashlib.sha3_256(bytes.fromhex(private_key)).hexdigest()
+        except ValueError as exc:
+            raise ValueError('Invalid private key') from exc
+    if ciphertext != public_key:
+        raise ValueError('Recipient private key does not match this package')
     secret_material = bytes.fromhex(public_key) + bytes.fromhex(private_key)
     return hashlib.sha3_256(secret_material).digest()
