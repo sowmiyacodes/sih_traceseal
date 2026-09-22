@@ -21,6 +21,7 @@ class DecryptionEvent(Base):
     timestamp = Column(String(64), nullable=False)
     signature = Column(Text, nullable=True)
     signature_algorithm = Column(String(64), nullable=False, default="ML-DSA-65")
+    public_key_fingerprint = Column(String(128), nullable=True)
     event_hash = Column(String(128), nullable=False)
     ledger_block_id = Column(String(64), nullable=True)
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))

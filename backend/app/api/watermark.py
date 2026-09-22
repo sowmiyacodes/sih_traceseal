@@ -1,9 +1,10 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from app.services.watermark_service import WatermarkService
+from app.api.auth import current_user, require_roles
 
 router = APIRouter(tags=['watermark'])
 
@@ -17,7 +18,7 @@ class WatermarkRequest(BaseModel):
 
 
 @router.post('/watermark/embed')
-def embed(request: WatermarkRequest):
+def embed(request: WatermarkRequest, _: dict = Depends(require_roles('ADMIN', 'SENDER'))):
     try:
         return WatermarkService.embed_watermark(request.document_path, request.recipient_id, request.document_id, request.session_id, request.nonce)
     except ValueError as exc:
@@ -25,7 +26,7 @@ def embed(request: WatermarkRequest):
 
 
 @router.post('/watermark/detect')
-def detect(payload: dict):
+def detect(payload: dict, _: dict = Depends(current_user)):
     path = payload.get('document_path')
     if not path:
         raise HTTPException(status_code=400, detail='document_path is required')
@@ -33,7 +34,7 @@ def detect(payload: dict):
 
 
 @router.post('/watermark/extract')
-def extract(payload: dict):
+def extract(payload: dict, _: dict = Depends(current_user)):
     path = payload.get('document_path')
     if not path:
         raise HTTPException(status_code=400, detail='document_path is required')

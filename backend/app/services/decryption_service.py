@@ -12,6 +12,7 @@ from app.crypto.pq import sign_event, verify_signature
 from app.models.database import SessionLocal
 from app.models.decryption_event import DecryptionEvent
 from app.services.ledger_service import LedgerService
+from app.services.recipient_service import RecipientService
 
 
 class DecryptionService:
@@ -35,6 +36,14 @@ class DecryptionService:
         }
         event_hash = sha3_256_hex(json.dumps(canonical, separators=(",", ":"), sort_keys=True))
         signature = sign_event(private_key or "00" * 32, event_hash.encode('utf-8'))
+        recipient = RecipientService.get_recipient(recipient_id)
+        public_key_fingerprint = None
+        if recipient:
+            try:
+                public_key = json.loads(recipient['public_key']).get('ml_dsa_public')
+                public_key_fingerprint = sha3_256_hex(bytes.fromhex(public_key)) if public_key else None
+            except (ValueError, TypeError, json.JSONDecodeError):
+                public_key_fingerprint = None
         event = DecryptionEvent(
             event_id=event_id,
             document_id=document_id,
@@ -47,6 +56,7 @@ class DecryptionService:
             signature=signature,
             signature_algorithm='ML-DSA-65',
             event_hash=event_hash,
+            public_key_fingerprint=public_key_fingerprint,
             ledger_block_id=None,
         )
         db: Session = SessionLocal()
@@ -77,6 +87,7 @@ class DecryptionService:
             "event_hash": event_hash,
             "signature": signature,
             "signature_algorithm": 'ML-DSA-65',
+            "public_key_fingerprint": public_key_fingerprint,
         }
 
     @staticmethod
@@ -105,6 +116,7 @@ class DecryptionService:
                 "timestamp": row.timestamp,
                 "signature": row.signature,
                 "signature_algorithm": row.signature_algorithm,
+                "public_key_fingerprint": row.public_key_fingerprint,
                 "event_hash": row.event_hash,
                 "ledger_block_id": row.ledger_block_id,
             }
@@ -125,6 +137,7 @@ class DecryptionService:
                     "timestamp": row.timestamp,
                     "event_hash": row.event_hash,
                     "signature_algorithm": row.signature_algorithm,
+                    "public_key_fingerprint": row.public_key_fingerprint,
                 }
                 for row in db.query(DecryptionEvent).order_by(DecryptionEvent.id).all()
             ]

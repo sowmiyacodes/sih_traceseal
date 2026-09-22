@@ -1,19 +1,20 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 
 from app.services.ledger_service import LedgerService
+from app.api.auth import current_user
 
 router = APIRouter(tags=['ledger'])
 
 
 @router.get('/ledger/blocks')
-def list_blocks():
+def list_blocks(_: dict = Depends(current_user)):
     return LedgerService.list_blocks()
 
 
 @router.get('/ledger/blocks/{block_number}')
-def get_block(block_number: int):
+def get_block(block_number: int, _: dict = Depends(current_user)):
     block = LedgerService.get_block(block_number)
     if block is None:
         raise HTTPException(status_code=404, detail='Block not found')
@@ -21,5 +22,10 @@ def get_block(block_number: int):
 
 
 @router.get('/ledger/validate')
-def validate_ledger():
-    return {'valid': LedgerService.validate_chain()}
+def validate_ledger(_: dict = Depends(current_user)):
+    return {'valid': LedgerService.validate_chain(), 'quorum': LedgerService.quorum_status()}
+
+
+@router.get('/ledger/quorum')
+def ledger_quorum(_: dict = Depends(current_user)):
+    return LedgerService.quorum_status()

@@ -11,6 +11,7 @@ from app.crypto.hashing import sha3_256_hex
 
 class LedgerService:
     DATA_PATH = Path(__file__).resolve().parents[2] / "ledger_data" / "chain.json"
+    VALIDATORS = ('NODE-01', 'NODE-02', 'NODE-03')
 
     @staticmethod
     def _initial_chain() -> list[dict[str, Any]]:
@@ -96,7 +97,18 @@ class LedgerService:
             return False
         previous_hash = "0" * 64
         for index, block in enumerate(chain):
+            if block.get('block_number') != index:
+                return False
             if block.get('previous_hash') != previous_hash and index != 0:
+                return False
+            transactions = block.get('transactions', [])
+            if len(transactions) == 0:
+                expected_root = "0" * 64
+            elif len(transactions) == 1:
+                expected_root = sha3_256_hex(json.dumps(transactions[0], sort_keys=True, separators=(",", ":")))
+            else:
+                expected_root = sha3_256_hex(json.dumps(transactions, sort_keys=True, separators=(",", ":")))
+            if block.get('transaction_root') != expected_root:
                 return False
             expected = sha3_256_hex(
                 f"{block['block_number']}|{block['timestamp']}|{block['previous_hash']}|{block['transaction_root']}"
@@ -142,3 +154,15 @@ class LedgerService:
                 if tx.get('event_id') == tx_id or tx.get('tx_id') == tx_id:
                     return tx
         return None
+
+    @staticmethod
+    def quorum_status() -> dict[str, Any]:
+        valid = LedgerService.validate_chain()
+        approvals = len(LedgerService.VALIDATORS) if valid else 0
+        return {
+            'validators': list(LedgerService.VALIDATORS),
+            'required': 2,
+            'approvals': approvals,
+            'committed': approvals >= 2,
+            'chain_valid': valid,
+        }

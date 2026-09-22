@@ -168,6 +168,7 @@ class WatermarkService:
                 marked = cls._embed_image(cv2.cvtColor(image, cv2.COLOR_RGB2BGR), watermark_id)
                 png_bytes = cls._array_to_image_bytes(marked, 'png')
                 new_page = output.new_page(width=page.rect.width, height=page.rect.height)
+                new_page.show_pdf_page(new_page.rect, source, page.number)
                 new_page.insert_image(new_page.rect, stream=png_bytes)
             output.save(str(output_path), garbage=4, deflate=True)
             return len(source)

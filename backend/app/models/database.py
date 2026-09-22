@@ -33,6 +33,8 @@ def init_db() -> None:
     from app.models.recipient import Recipient
     from app.models.watermark import Watermark
     from app.models.decryption_event import DecryptionEvent
+    from app.models.user import User
+    from app.models.recipient_package import RecipientPackage
 
     Base.metadata.create_all(bind=engine)
     inspector = inspect(engine)
@@ -44,6 +46,12 @@ def init_db() -> None:
         'watermarks': {
             'algorithm': "VARCHAR(32) NOT NULL DEFAULT 'DCT'",
             'confidence': 'FLOAT NOT NULL DEFAULT 1.0',
+        },
+        'users': {
+            'recipient_id': 'VARCHAR(32)',
+        },
+        'decryption_events': {
+            'public_key_fingerprint': 'VARCHAR(128)',
         },
     }
     with engine.begin() as connection:

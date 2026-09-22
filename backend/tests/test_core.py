@@ -1,11 +1,14 @@
 import hashlib
 import os
 import tempfile
+from io import BytesIO
+from types import SimpleNamespace
 from pathlib import Path
 
 import cv2
 import numpy as np
 import pytest
+from fastapi.testclient import TestClient
 
 from app.crypto.hashing import sha3_256, sha3_256_hex
 from app.crypto.encryption import aes_gcm_encrypt, aes_gcm_decrypt
@@ -16,6 +19,7 @@ from app.services.ledger_service import LedgerService
 from app.services.decryption_service import DecryptionService
 from app.services.recipient_service import RecipientService
 from app.services.document_service import DocumentService
+from app.main import app
 
 
 def test_sha3_hashing():
@@ -166,3 +170,27 @@ def test_document_encrypt_and_decrypt_roundtrip(tmp_path):
     decrypted = DocumentService.decrypt_document_file(encrypted['encrypted_path'], key)
     assert decrypted['plaintext_path'].exists()
     assert Path(decrypted['plaintext_path']).read_text(encoding='utf-8') == 'forensic evidence payload'
+
+
+def test_protected_api_requires_local_login():
+    client = TestClient(app)
+    assert client.get('/api/dashboard').status_code == 401
+    response = client.post('/api/auth/login', json={'username': 'admin', 'password': 'traceseal-admin'})
+    assert response.status_code == 200
+    assert client.get('/api/dashboard', headers={'Authorization': f"Bearer {response.json()['token']}"}).status_code == 200
+
+
+def test_one_ciphertext_supports_multiple_isolated_packages():
+    suffix = os.urandom(4).hex().upper()
+    alice = RecipientService.create_recipient(f'Alice-{suffix}', 'Legal')
+    bob = RecipientService.create_recipient(f'Bob-{suffix}', 'Finance')
+    source = SimpleNamespace(filename=f'package-{suffix}.txt', file=BytesIO(b'one ciphertext, two recipients'))
+    uploaded = DocumentService.upload_document(source)
+    packages = DocumentService.create_recipient_packages(uploaded['document_id'], [alice['recipient_id'], bob['recipient_id']])
+    assert len(packages) == 2
+    assert uploaded['encryption_key_hex'] is None
+    alice_key = DocumentService.decrypt_recipient_package(uploaded['document_id'], alice['recipient_id'])['key']
+    bob_key = DocumentService.decrypt_recipient_package(uploaded['document_id'], bob['recipient_id'])['key']
+    assert alice_key == bob_key
+    with pytest.raises(ValueError):
+        DocumentService.decrypt_recipient_package(uploaded['document_id'], 'REC-NOT-AUTHORIZED')
