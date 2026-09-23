@@ -92,31 +92,37 @@ class LedgerService:
 
     @staticmethod
     def validate_chain() -> bool:
+        return LedgerService.verify_chain()['valid']
+
+    @staticmethod
+    def verify_chain() -> dict[str, Any]:
         chain = LedgerService._load_chain()
         if not chain:
-            return False
-        previous_hash = "0" * 64
+            return {'valid': False, 'failed_block': None, 'reason': 'empty_chain'}
+        previous_hash = '0' * 64
         for index, block in enumerate(chain):
             if block.get('block_number') != index:
-                return False
-            if block.get('previous_hash') != previous_hash and index != 0:
-                return False
+                return {'valid': False, 'failed_block': index, 'reason': 'block_number_mismatch'}
+            if index == 0 and block.get('previous_hash') != '0' * 64:
+                return {'valid': False, 'failed_block': index, 'reason': 'genesis_previous_hash_mismatch'}
+            if index > 0 and block.get('previous_hash') != previous_hash:
+                return {'valid': False, 'failed_block': index, 'reason': 'previous_hash_mismatch'}
             transactions = block.get('transactions', [])
             if len(transactions) == 0:
-                expected_root = "0" * 64
+                expected_root = '0' * 64
             elif len(transactions) == 1:
                 expected_root = sha3_256_hex(json.dumps(transactions[0], sort_keys=True, separators=(",", ":")))
             else:
                 expected_root = sha3_256_hex(json.dumps(transactions, sort_keys=True, separators=(",", ":")))
             if block.get('transaction_root') != expected_root:
-                return False
+                return {'valid': False, 'failed_block': index, 'reason': 'transaction_root_mismatch'}
             expected = sha3_256_hex(
                 f"{block['block_number']}|{block['timestamp']}|{block['previous_hash']}|{block['transaction_root']}"
             )
             if block.get('block_hash') != expected:
-                return False
+                return {'valid': False, 'failed_block': index, 'reason': 'block_hash_mismatch'}
             previous_hash = block.get('block_hash', '')
-        return True
+        return {'valid': True, 'failed_block': None, 'reason': None}
 
     @staticmethod
     def _detect_tampering(block: dict[str, Any], chain: list[dict[str, Any]]) -> bool:

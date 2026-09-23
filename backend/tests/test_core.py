@@ -61,10 +61,27 @@ def test_watermark_generation_and_detection():
         'session_id': 'SES-TEST-1',
         'nonce': 'NONCE-XYZ',
         'timestamp': '2024-01-01T00:00:00Z',
+        'document_hash': 'HASH-ABC',
     }
     wm1 = WatermarkService.generate_watermark_payload(payload)
     wm2 = WatermarkService.generate_watermark_payload({**payload, 'recipient_id': 'REC-002'})
     assert wm1 != wm2
+
+
+def test_watermark_payload_is_canonical_and_session_specific():
+    base = {
+        'document_id': 'DOC-001',
+        'recipient_id': 'REC-001',
+        'document_hash': 'HASH-ALICE',
+        'session_id': 'SES-UNIQUE',
+        'timestamp': '2024-01-01T00:00:00Z',
+        'nonce': 'nonce-1',
+    }
+    wm1 = WatermarkService.generate_watermark_payload(base)
+    wm2 = WatermarkService.generate_watermark_payload({**base, 'document_hash': 'HASH-BOB', 'nonce': 'nonce-2'})
+    assert wm1 != wm2
+    assert wm1.startswith('WM-')
+    assert len(wm1) >= 18
 
 
 def test_watermark_embedding_and_extraction(tmp_path):
@@ -113,6 +130,20 @@ def test_ledger_chain_validation():
     second = LedgerService.add_block({'tx_id': 'tx-2', 'kind': 'event'})
     assert LedgerService.validate_chain() is True
     assert second['block_number'] >= 1
+
+
+def test_ledger_verify_reports_tamper_details():
+    LedgerService.create_genesis_block()
+    second = LedgerService.add_block({'tx_id': 'tx-3', 'kind': 'event', 'watermark_id': 'WM-TEST-TAMPER'})
+    tampered = dict(second)
+    tampered['block_hash'] = '00' * 32
+    chain = LedgerService.list_blocks()
+    if len(chain) > 1:
+        chain[-1] = tampered
+        LedgerService._save_chain(chain)
+    result = LedgerService.verify_chain()
+    assert result['valid'] is False
+    assert 'reason' in result
 
 
 def test_modified_block_detection():

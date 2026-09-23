@@ -23,7 +23,8 @@ def get_block(block_number: int, _: dict = Depends(current_user)):
 
 @router.get('/ledger/validate')
 def validate_ledger(_: dict = Depends(current_user)):
-    return {'valid': LedgerService.validate_chain(), 'quorum': LedgerService.quorum_status()}
+    verification = LedgerService.verify_chain()
+    return {'valid': verification['valid'], 'reason': verification.get('reason'), 'failed_block': verification.get('failed_block'), 'quorum': LedgerService.quorum_status()}
 
 
 @router.get('/ledger/quorum')

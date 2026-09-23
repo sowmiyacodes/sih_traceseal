@@ -38,7 +38,15 @@ class WatermarkService:
 
     @staticmethod
     def generate_watermark_payload(payload: dict[str, Any]) -> str:
-        assembled = '|'.join(str(payload.get(key, '')) for key in ('document_id', 'recipient_id', 'session_id', 'nonce', 'timestamp'))
+        canonical = {
+            'recipient_id': str(payload.get('recipient_id', '')),
+            'document_id': str(payload.get('document_id', '')),
+            'document_hash': str(payload.get('document_hash', '')),
+            'session_id': str(payload.get('session_id', '')),
+            'timestamp': str(payload.get('timestamp', '')),
+            'nonce': str(payload.get('nonce', '')),
+        }
+        assembled = '|'.join(f'{key}={canonical[key]}' for key in sorted(canonical))
         return f'WM-{sha3_256_hex(assembled)[:16].upper()}'
 
     @classmethod
@@ -177,17 +185,27 @@ class WatermarkService:
             output.close()
 
     @classmethod
-    def generate_watermark_record(cls, document_id: str, recipient_id: str, session_id: str, nonce: str) -> dict:
+    def generate_watermark_record(cls, document_id: str, recipient_id: str, session_id: str, nonce: str, document_hash: str | None = None) -> dict:
         timestamp = datetime.now(timezone.utc).isoformat()
-        payload = {'document_id': document_id, 'recipient_id': recipient_id, 'session_id': session_id, 'nonce': nonce, 'timestamp': timestamp}
+        payload = {
+            'document_id': document_id,
+            'recipient_id': recipient_id,
+            'document_hash': document_hash or '',
+            'session_id': session_id,
+            'nonce': nonce,
+            'timestamp': timestamp,
+        }
         watermark_id = cls.generate_watermark_payload(payload)
+        payload['watermark_id'] = watermark_id
         record = {
             'watermark_id': watermark_id,
             'document_id': document_id,
             'recipient_id': recipient_id,
+            'document_hash': document_hash or '',
             'session_id': session_id,
             'nonce': nonce,
-            'watermark_hash': sha3_256_hex(json.dumps(payload, sort_keys=True)),
+            'timestamp': timestamp,
+            'watermark_hash': sha3_256_hex(json.dumps(payload, sort_keys=True, separators=(",", ":"))),
             'algorithm': cls.ALGORITHM,
             'confidence': 1.0,
             'created_at': timestamp,
@@ -212,11 +230,11 @@ class WatermarkService:
         return record
 
     @classmethod
-    def embed_watermark(cls, source_path: str | Path, recipient_id: str, document_id: str, session_id: str, nonce: str) -> dict:
+    def embed_watermark(cls, source_path: str | Path, recipient_id: str, document_id: str, session_id: str, nonce: str, document_hash: str | None = None) -> dict:
         source = Path(source_path)
         if not cls.is_supported(source):
             raise ValueError('Watermarking requires a PDF, PNG, or JPEG visual document.')
-        record = cls.generate_watermark_record(document_id, recipient_id, session_id, nonce)
+        record = cls.generate_watermark_record(document_id, recipient_id, session_id, nonce, document_hash=document_hash)
         output_dir = cls.STORAGE_ROOT / 'watermarked'
         output_dir.mkdir(parents=True, exist_ok=True)
         output = output_dir / f'{source.stem}-{record["watermark_id"]}{source.suffix.lower()}'

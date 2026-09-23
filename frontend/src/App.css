@@ -6,6 +6,101 @@ html, body, #root {
   color: #14213d;
 }
 
+.login-page {
+  min-height: 100vh;
+  display: grid;
+  align-items: center;
+  overflow: hidden;
+  background:
+    radial-gradient(circle at 12% 18%, rgba(28, 126, 140, 0.28), transparent 30%),
+    linear-gradient(135deg, #06131d 0%, #0b2430 58%, #103b42 100%);
+}
+
+.login-page::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0.16;
+  background-image: linear-gradient(rgba(255, 255, 255, 0.12) 1px, transparent 1px), linear-gradient(90deg, rgba(255, 255, 255, 0.12) 1px, transparent 1px);
+  background-size: 46px 46px;
+  mask-image: linear-gradient(135deg, black, transparent 72%);
+}
+
+.login-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(360px, 450px);
+  gap: clamp(3rem, 8vw, 8rem);
+  align-items: center;
+  padding: 3rem 0;
+}
+
+.login-intro {
+  max-width: 620px;
+  color: #f3fbfa;
+}
+
+.login-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.65rem;
+  color: #6be3d1;
+  font-weight: 800;
+}
+
+.login-intro h1 {
+  margin: 1.5rem 0 1.25rem;
+  max-width: 600px;
+  font-size: clamp(2.8rem, 5vw, 5.25rem);
+  line-height: 0.98;
+  letter-spacing: -0.04em;
+}
+
+.login-lead {
+  max-width: 500px;
+  color: #b6d2d5;
+  font-size: 1.1rem;
+  line-height: 1.7;
+}
+
+.login-signals {
+  margin-top: 2.5rem;
+}
+
+.login-signals > div {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  color: #b6d2d5;
+}
+
+.login-signals svg {
+  color: #6be3d1;
+}
+
+.login-card {
+  border: 1px solid rgba(255, 255, 255, 0.65) !important;
+  border-radius: 16px !important;
+  background: rgba(255, 255, 255, 0.96) !important;
+  box-shadow: 0 30px 80px rgba(0, 0, 0, 0.26) !important;
+}
+
+@media (max-width: 800px) {
+  .login-layout {
+    grid-template-columns: 1fr;
+    gap: 2.5rem;
+    padding: 2rem 0;
+  }
+
+  .login-intro h1 {
+    font-size: clamp(2.5rem, 12vw, 4rem);
+  }
+
+  .login-signals {
+    margin-top: 1.5rem;
+  }
+}
+
 body {
   min-height: 100vh;
 }

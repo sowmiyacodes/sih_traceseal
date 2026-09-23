@@ -152,12 +152,19 @@ Then open:
 
 ## Demo Flow
 
-1. Create a recipient.
-2. Upload a document.
-3. Use the same AES key for encryption/decryption.
-4. Run the watermark detection.
-5. Check ledger and forensics results.
-6. Confirm whether attribution is valid.
+The backend seeds two local demo logins on startup. These accounts are for the offline demonstration only:
+
+- Admin: `admin` / `traceseal-admin`
+- Recipient: `alice` / `traceseal-alice` (linked to `REC-001`)
+
+1. Sign in as admin and create/upload a document.
+2. Assign the document to the seeded recipient or another active recipient.
+3. Sign out and sign in as Alice.
+4. Decrypt and download the protected copy. This creates a session watermark, signed event, and ledger record.
+5. Sign in as an investigator-capable account and upload the leaked copy in Forensic Investigation.
+6. Confirm the watermark, signature, ledger chain, and recipient attribution.
+
+The demo recipient username and password can be overridden for local setup with `TRACESEAL_DEMO_RECIPIENT_USERNAME` and `TRACESEAL_DEMO_RECIPIENT_PASSWORD`.
 
 ## Tests
 

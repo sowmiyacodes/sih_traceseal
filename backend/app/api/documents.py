@@ -50,7 +50,14 @@ def decrypt_document(payload: DecryptRequest, user: dict = Depends(current_user)
             raise ValueError('Document not found')
         result = DocumentService.decrypt_document_file(document['encrypted_path'], package['key'], document_id)
         session_id = DecryptionService.generate_session_id()
-        watermark = WatermarkService.embed_watermark(result['plaintext_path'], recipient_id, document_id, session_id, secrets.token_hex(8))
+        watermark = WatermarkService.embed_watermark(
+            result['plaintext_path'],
+            recipient_id,
+            document_id,
+            session_id,
+            secrets.token_hex(8),
+            document_hash=result['sha3_256'],
+        )
         DocumentService.set_watermarked_path(document_id, watermark['output_path'])
         event = DecryptionService.create_decryption_event(
             document_id=document_id,

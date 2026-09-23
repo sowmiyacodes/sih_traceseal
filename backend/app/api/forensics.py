@@ -88,7 +88,7 @@ def analyze(payload: AnalyzeRequest, user: dict = Depends(require_roles('ADMIN',
         public_key_match = bool(public_key and event.get('public_key_fingerprint') and sha3_256_hex(bytes.fromhex(public_key)) == event['public_key_fingerprint'])
     except (TypeError, ValueError, json.JSONDecodeError):
         signature_valid = False
-    chain_valid = LedgerService.validate_chain()
+    chain_valid = LedgerService.verify_chain()['valid']
     evidence_hash_match = event.get('watermarked_hash') == evidence_hash
     document = DocumentService.get_document(event['document_id'])
     evidence_recorded = bool(document and event.get('document_hash') == document.get('original_hash'))

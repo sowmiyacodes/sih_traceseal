@@ -26,6 +26,7 @@ load_dotenv(dotenv_path=Path(__file__).resolve().parents[1] / ".env")
 async def lifespan(_: FastAPI):
     init_db()
     AuthService.seed_admin()
+    AuthService.seed_demo_recipient()
     yield
 
 

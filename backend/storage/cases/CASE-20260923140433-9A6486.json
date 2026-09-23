@@ -1,0 +1,27 @@
+{
+  "attribution_confirmed": false,
+  "case_id": "CASE-20260923140433-9A6486",
+  "chain_valid": false,
+  "created_at": "2026-09-23T14:04:33.168307+00:00",
+  "event_id": "EVT-0742569A6486",
+  "evidence_filename": "Blockchain_Cryptography_Cybersecurity_Complete_Notes (1).pdf",
+  "evidence_hash_match": true,
+  "evidence_hash_recorded": true,
+  "evidence_sha3_256": "eef72c696fc76f82c0b6a26ec8a46ea0ec4fe63d983fe8d68887e62daf953557",
+  "investigator_id": "USR-ADMIN",
+  "ledger_match": true,
+  "public_key_match": true,
+  "recipient": {
+    "display_name": "sowmiya",
+    "public_key_fingerprint": "4a6c7581574a73099582c594aa2f0769bafa80b57861b15017dc7113eaecd84c",
+    "recipient_id": "REC-002"
+  },
+  "signature_valid": true,
+  "watermark": {
+    "algorithm": "DCT",
+    "confidence": 0.99,
+    "detected": true,
+    "page": 1,
+    "watermark_id": "WM-CAD784D70691DB0A"
+  }
+}

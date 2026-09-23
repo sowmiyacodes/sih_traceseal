@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import hmac
+import os
 import secrets
 from datetime import datetime, timedelta, timezone
 
@@ -56,6 +57,33 @@ class AuthService:
                 db.commit()
         finally:
             db.close()
+
+    @classmethod
+    def seed_demo_recipient(cls) -> None:
+        username = os.environ.get('TRACESEAL_DEMO_RECIPIENT_USERNAME', 'alice')
+        password = os.environ.get('TRACESEAL_DEMO_RECIPIENT_PASSWORD', 'traceseal-alice')
+        db: Session = SessionLocal()
+        try:
+            user = db.query(User).filter(User.username == username).first()
+            if user is not None:
+                return
+            recipient = db.query(Recipient).filter(Recipient.recipient_id == 'REC-001').first()
+        finally:
+            db.close()
+
+        if recipient is None:
+            from app.services.recipient_service import RecipientService
+            recipient = RecipientService.create_recipient('Alice Demo', 'Security')
+
+        recipient_id = recipient['recipient_id'] if isinstance(recipient, dict) else recipient.recipient_id
+
+        cls.create_user(
+            username=username,
+            password=password,
+            display_name='Alice Demo',
+            role='RECIPIENT',
+            recipient_id=recipient_id,
+        )
 
     @classmethod
     def login(cls, username: str, password: str) -> dict | None:

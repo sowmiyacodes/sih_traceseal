@@ -1,32 +1,23 @@
 import { useEffect, useState } from 'react'
-import { BrowserRouter, Routes, Route, NavLink } from 'react-router-dom'
+import { BrowserRouter, Routes, Route } from 'react-router-dom'
 import axios from 'axios'
 import { API_BASE } from './config/api'
 import { whiteTheme } from './config/theme'
-import { navigationItems } from './config/navigation'
 import type { AuthUser } from './types/auth'
 import { LoginPage } from './components/LoginPage'
+import { AppShell } from './components/AppShell'
+import { WorkflowPipeline } from './components/WorkflowPipeline'
 import {
-  AppBar,
   Box,
   Button,
   Card,
   CardContent,
   Chip,
   Container,
-  Drawer,
-  List,
-  ListItemButton,
-  ListItemIcon,
-  ListItemText,
   TextField,
-  Toolbar,
   Typography,
   Stack,
 } from '@mui/material'
-import {
-  ShieldCheck,
-} from 'lucide-react'
 import './App.css'
 
 axios.interceptors.request.use((config) => {
@@ -58,109 +49,6 @@ type DecryptResult = {
   event_id?: string
   download_url?: string
   download_filename?: string
-}
-
-function AppShell({ user, onLogout }: { user: AuthUser; onLogout: () => void }) {
-  const visibleNavigation = navigationItems.filter((item) => item.roles.includes(user.role))
-  const roleLabel = user.role === 'FORENSIC_INVESTIGATOR' ? 'Investigator workspace' : `${user.role.toLowerCase()} workspace`
-  return (
-    <Box sx={{ display: 'flex', minHeight: '100vh', background: whiteTheme.shell }}>
-      <Drawer
-        variant="permanent"
-        sx={{
-          width: 260,
-          flexShrink: 0,
-          '& .MuiDrawer-paper': {
-            width: 260,
-            background: '#ffffff',
-            color: whiteTheme.text,
-            borderRight: `1px solid ${whiteTheme.line}`,
-            boxShadow: 'none',
-          },
-        }}
-      >
-        <Toolbar sx={{ px: 2.5, borderBottom: `1px solid ${whiteTheme.line}` }}>
-          <ShieldCheck size={20} color={whiteTheme.primary} />
-          <Typography variant="h6" sx={{ ml: 1.25, fontWeight: 800, letterSpacing: 0.8, color: whiteTheme.text }}>
-            TRACESEAL
-          </Typography>
-        </Toolbar>
-        <List sx={{ px: 1.25, py: 1.5 }}>
-          {visibleNavigation.map(({ label, path, icon: Icon }) => (
-            <ListItemButton
-              key={label}
-              component={NavLink}
-              to={path}
-              sx={{
-                color: whiteTheme.text,
-                borderRadius: 2,
-                mb: 0.5,
-                '&.active': {
-                  background: whiteTheme.primarySoft,
-                  color: whiteTheme.primary,
-                  '& .MuiListItemIcon-root': { color: whiteTheme.primary },
-                },
-              }}
-            >
-              <ListItemIcon sx={{ color: whiteTheme.subtext, minWidth: 36 }}><Icon size={18} /></ListItemIcon>
-              <ListItemText primary={label} />
-            </ListItemButton>
-          ))}
-        </List>
-      </Drawer>
-
-      <Box component="main" sx={{ flexGrow: 1, p: 3 }}>
-        <AppBar
-          position="static"
-          elevation={0}
-          sx={{
-            borderRadius: 3,
-            background: whiteTheme.panel,
-            border: `1px solid ${whiteTheme.line}`,
-            boxShadow: whiteTheme.shadow,
-            mb: 3,
-          }}
-        >
-          <Toolbar sx={{ px: 2.5, minHeight: 72 }}>
-            <ShieldCheck size={20} color={whiteTheme.primary} />
-            <Typography variant="h6" sx={{ ml: 1.2, fontWeight: 700, color: whiteTheme.text }}>
-              {roleLabel}
-            </Typography>
-            <Chip
-              label="LOCAL VALIDATION"
-              sx={{
-                ml: 'auto',
-                background: whiteTheme.successSoft,
-                color: whiteTheme.success,
-                border: `1px solid ${whiteTheme.success}`,
-                fontWeight: 700,
-              }}
-            />
-            <Chip label={user.display_name} sx={{ ml: 1, color: whiteTheme.text }} />
-            <Button onClick={onLogout} sx={{ ml: 1, textTransform: 'none' }}>Logout</Button>
-          </Toolbar>
-        </AppBar>
-
-        <Container maxWidth={false} sx={{ px: 0 }}>
-          <Routes>
-            <Route path="/" element={<Dashboard user={user} />} />
-            <Route path="/documents" element={<DocumentsPage />} />
-                        <Route path="/distribution" element={<DistributionPage />} />
-            <Route path="/recipients" element={<RecipientsPage />} />
-            <Route path="/decryption" element={<DecryptionPage />} />
-            <Route path="/watermarks" element={<WatermarkPage />} />
-            <Route path="/ledger" element={<LedgerPage />} />
-            <Route path="/forensics" element={<ForensicsPage />} />
-            <Route path="/cases" element={<CasesPage />} />
-            <Route path="/reports" element={<ReportsPage />} />
-            <Route path="/security" element={<SecurityPage />} />
-            <Route path="/settings" element={<SettingsPage />} />
-            <Route path="/admin/users" element={<AdminUsersPage />} />
-          </Routes>
-        </Container>
-      </Box>
-    </Box>
-  )
 }
 
 function Dashboard({ user }: { user: AuthUser }) {
@@ -215,12 +103,7 @@ function Dashboard({ user }: { user: AuthUser }) {
 
       <Card sx={{ gridColumn: '1 / -1', background: whiteTheme.panel, border: `1px solid ${whiteTheme.line}`, boxShadow: whiteTheme.shadow, borderRadius: 3 }}>
         <CardContent sx={{ p: 3 }}>
-          <Typography variant="h6" sx={{ mb: 2, color: whiteTheme.text, fontWeight: 700 }}>Security Pipeline</Typography>
-          <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap', gap: 1 }}>
-            {['Authentication', 'Key establishment', 'Decryption', 'Session generation', 'Watermark generation', 'ML-DSA signing', 'Ledger commit'].map((step) => (
-              <Chip key={step} label={step} sx={{ background: whiteTheme.primarySoft, color: whiteTheme.primary, border: `1px solid ${whiteTheme.primary}` }} />
-            ))}
-          </Stack>
+          <WorkflowPipeline />
         </CardContent>
       </Card>
     </Box>
@@ -827,7 +710,25 @@ function App() {
 
   return (
     <BrowserRouter>
-      <AppShell user={user} onLogout={() => { window.localStorage.removeItem('traceseal_session'); setAuthenticated(false) }} />
+      <AppShell user={user} onLogout={() => { window.localStorage.removeItem('traceseal_session'); setAuthenticated(false) }}>
+        <Container maxWidth={false} sx={{ px: 0 }}>
+          <Routes>
+            <Route path="/" element={<Dashboard user={user} />} />
+            <Route path="/documents" element={<DocumentsPage />} />
+            <Route path="/distribution" element={<DistributionPage />} />
+            <Route path="/recipients" element={<RecipientsPage />} />
+            <Route path="/decryption" element={<DecryptionPage />} />
+            <Route path="/watermarks" element={<WatermarkPage />} />
+            <Route path="/ledger" element={<LedgerPage />} />
+            <Route path="/forensics" element={<ForensicsPage />} />
+            <Route path="/cases" element={<CasesPage />} />
+            <Route path="/reports" element={<ReportsPage />} />
+            <Route path="/security" element={<SecurityPage />} />
+            <Route path="/settings" element={<SettingsPage />} />
+            <Route path="/admin/users" element={<AdminUsersPage />} />
+          </Routes>
+        </Container>
+      </AppShell>
     </BrowserRouter>
   )
 }

@@ -1,0 +1,27 @@
+{
+  "attribution_confirmed": true,
+  "case_id": "CASE-20260922140542-810264",
+  "chain_valid": true,
+  "created_at": "2026-09-22T14:05:42.444935+00:00",
+  "event_id": "EVT-58FDBA810264",
+  "evidence_filename": "test2.pdf",
+  "evidence_hash_match": true,
+  "evidence_hash_recorded": true,
+  "evidence_sha3_256": "35fc6935aec4cc761422fae781688e355553607525ec74a988dfd98ce3d30017",
+  "investigator_id": "USR-ADMIN",
+  "ledger_match": true,
+  "public_key_match": true,
+  "recipient": {
+    "display_name": "pazhani",
+    "public_key_fingerprint": "1b8322c600c0960dcb1a989a15e37238fddfd3de71540571c0a75140b6283d2c",
+    "recipient_id": "REC-003"
+  },
+  "signature_valid": true,
+  "watermark": {
+    "algorithm": "DCT",
+    "confidence": 0.99,
+    "detected": true,
+    "page": 1,
+    "watermark_id": "WM-A2625D2A2DEAC496"
+  }
+}

@@ -23,6 +23,7 @@ def reset_database() -> None:
     Base.metadata.drop_all(bind=engine)
     Base.metadata.create_all(bind=engine)
     AuthService.seed_admin()
+    AuthService.seed_demo_recipient()
 
 
 def main() -> None:
@@ -36,7 +37,7 @@ def main() -> None:
     storage.mkdir(parents=True, exist_ok=True)
     reset_database()
     print('Reset complete: removed users, recipients, documents, packages, events, cases, keys, and ledger data.')
-    print('Preserved account: admin / traceseal-admin')
+    print('Demo accounts: admin / traceseal-admin and alice / traceseal-alice')
 
 
 if __name__ == '__main__':

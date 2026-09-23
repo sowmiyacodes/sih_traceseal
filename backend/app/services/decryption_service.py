@@ -21,18 +21,22 @@ class DecryptionService:
         return f"SES-{secrets.token_hex(4).upper()}"
 
     @staticmethod
-    def create_decryption_event(document_id: str, recipient_id: str, session_id: str, watermark_id: str, document_hash: str, watermarked_hash: str, private_key: str | None = None) -> dict:
+    def create_decryption_event(document_id: str, recipient_id: str, session_id: str, watermark_id: str, document_hash: str, watermarked_hash: str, private_key: str | None = None, nonce: str | None = None, record_version: str = '1.0') -> dict:
         event_id = f"EVT-{uuid.uuid4().hex[:12].upper()}"
         timestamp = datetime.now(timezone.utc).isoformat()
+        nonce = nonce or secrets.token_hex(12)
         canonical = {
             "event_id": event_id,
             "document_id": document_id,
             "recipient_id": recipient_id,
             "session_id": session_id,
             "watermark_id": watermark_id,
-            "timestamp": timestamp,
             "document_hash": document_hash,
             "watermarked_hash": watermarked_hash,
+            "timestamp": timestamp,
+            "nonce": nonce,
+            "algorithm": "ML-DSA-65",
+            "record_version": record_version,
         }
         event_hash = sha3_256_hex(json.dumps(canonical, separators=(",", ":"), sort_keys=True))
         signature = sign_event(private_key or "00" * 32, event_hash.encode('utf-8'))
