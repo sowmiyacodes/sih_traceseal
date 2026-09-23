@@ -218,8 +218,10 @@ class WatermarkService:
                     watermark_id=watermark_id,
                     document_id=document_id,
                     recipient_id=recipient_id,
+                    document_hash=document_hash or '',
                     session_id=session_id,
                     nonce=nonce,
+                    timestamp=timestamp,
                     watermark_hash=record['watermark_hash'],
                     algorithm=cls.ALGORITHM,
                     confidence=1.0,
@@ -270,6 +272,22 @@ class WatermarkService:
         return cls.detect_watermark(document_path)
 
     @staticmethod
+    def verify_watermark_record(record: dict | None, watermark_id: str) -> bool:
+        if not record or record.get('watermark_id') != watermark_id:
+            return False
+        payload = {
+            'document_id': str(record.get('document_id', '')),
+            'recipient_id': str(record.get('recipient_id', '')),
+            'document_hash': str(record.get('document_hash', '')),
+            'session_id': str(record.get('session_id', '')),
+            'nonce': str(record.get('nonce', '')),
+            'timestamp': str(record.get('timestamp', '')),
+            'watermark_id': watermark_id,
+        }
+        expected_hash = sha3_256_hex(json.dumps(payload, sort_keys=True, separators=(",", ":")))
+        return expected_hash == record.get('watermark_hash')
+
+    @staticmethod
     def list_watermarks() -> list[dict]:
         db = SessionLocal()
         try:
@@ -277,8 +295,10 @@ class WatermarkService:
                 'watermark_id': row.watermark_id,
                 'document_id': row.document_id,
                 'recipient_id': row.recipient_id,
+                'document_hash': row.document_hash,
                 'session_id': row.session_id,
                 'nonce': row.nonce,
+                'timestamp': row.timestamp,
                 'watermark_hash': row.watermark_hash,
                 'algorithm': row.algorithm,
                 'confidence': row.confidence,
@@ -298,8 +318,10 @@ class WatermarkService:
                 'watermark_id': row.watermark_id,
                 'document_id': row.document_id,
                 'recipient_id': row.recipient_id,
+                'document_hash': row.document_hash,
                 'session_id': row.session_id,
                 'nonce': row.nonce,
+                'timestamp': row.timestamp,
                 'watermark_hash': row.watermark_hash,
                 'algorithm': row.algorithm,
                 'confidence': row.confidence,

@@ -1,0 +1,157 @@
+{
+  "attribution_confirmed": true,
+  "block": {
+    "block_hash": "c2e372c2b18b5d290bbc9843c7faab056445627f759d8e817739dbfd81477a25",
+    "block_number": 2,
+    "previous_hash": "669f24416569bb9e2d2b613dd9ae53a035dd20252098a0ab1582517c18538351",
+    "record_hash": "e974efa37463c998c6ed6ceec9b0a27f9523aa3263c6aba297ede59e67455f77"
+  },
+  "case_id": "CASE-20260923165708-004858",
+  "chain_valid": true,
+  "checked_blocks": 4,
+  "created_at": "2026-09-23T16:57:08.398144+00:00",
+  "document": {
+    "document_id": "DOC-AF6BAEC5",
+    "hash": "0876dde42a340b205239fb23dfae288ffe6b858fe08679c0b5e5894680868d2d",
+    "name": "confidential.png"
+  },
+  "document_hash_match": true,
+  "event_id": "EVT-CDE1DC004858",
+  "evidence_filename": "confidential-decrypted-WM-F2F596A76D9B88BC.png",
+  "evidence_graph": {
+    "edges": [
+      {
+        "from": "document",
+        "to": "recipient"
+      },
+      {
+        "from": "recipient",
+        "to": "session"
+      },
+      {
+        "from": "session",
+        "to": "watermark"
+      },
+      {
+        "from": "watermark",
+        "to": "event"
+      },
+      {
+        "from": "event",
+        "to": "signature"
+      },
+      {
+        "from": "signature",
+        "to": "ledger"
+      },
+      {
+        "from": "ledger",
+        "to": "evidence"
+      }
+    ],
+    "nodes": [
+      {
+        "id": "document",
+        "label": "confidential.png",
+        "status": "PASS",
+        "type": "DOCUMENT"
+      },
+      {
+        "id": "recipient",
+        "label": "Bob-E2E-45A81478",
+        "status": "PASS",
+        "type": "RECIPIENT"
+      },
+      {
+        "id": "session",
+        "label": "SES-F8102230",
+        "status": "PASS",
+        "type": "SESSION"
+      },
+      {
+        "id": "watermark",
+        "label": "WM-F2F596A76D9B88BC",
+        "status": "PASS",
+        "type": "WATERMARK"
+      },
+      {
+        "id": "event",
+        "label": "EVT-CDE1DC004858",
+        "status": "PASS",
+        "type": "DECRYPTION EVENT"
+      },
+      {
+        "id": "signature",
+        "label": "ML-DSA-65",
+        "status": "PASS",
+        "type": "ML-DSA SIGNATURE"
+      },
+      {
+        "id": "ledger",
+        "label": "Block 2",
+        "status": "PASS",
+        "type": "LEDGER BLOCK"
+      },
+      {
+        "id": "evidence",
+        "label": "confidential-decrypted-WM-F2F596A76D9B88BC.png",
+        "status": "PASS",
+        "type": "LEAKED FILE"
+      }
+    ]
+  },
+  "evidence_hash_match": true,
+  "evidence_hash_recorded": true,
+  "evidence_sha3_256": "907cba9c7c093af6a776c633a04b30eeac353cf0fe5e970513b1e60d0e6fac42",
+  "failed_block": null,
+  "investigator_id": "USR-ADMIN",
+  "ledger_match": true,
+  "match": true,
+  "public_key_match": true,
+  "recipient": {
+    "display_name": "Bob-E2E-45A81478",
+    "public_key_fingerprint": "6ee4f05811676730514b8fd117b48790fcfb0960ca34455103b644b07fdaab00",
+    "recipient_id": "REC-026"
+  },
+  "record_hash_valid": true,
+  "session_id": "SES-F8102230",
+  "signature_valid": true,
+  "timeline": [
+    {
+      "label": "Document registered",
+      "status": "PASS",
+      "timestamp": "2026-09-23T16:57:08.032800"
+    },
+    {
+      "label": "Decryption event created",
+      "status": "PASS",
+      "timestamp": "2026-09-23T16:57:08.236216+00:00"
+    },
+    {
+      "label": "Watermark extracted",
+      "status": "PASS",
+      "timestamp": "2026-09-23T16:57:08.236216+00:00"
+    },
+    {
+      "label": "Ledger verified",
+      "status": "PASS",
+      "timestamp": "2026-09-23T16:57:08.236216+00:00"
+    },
+    {
+      "label": "Forensic analysis completed",
+      "status": "PASS",
+      "timestamp": "2026-09-23T16:57:08.398174+00:00"
+    }
+  ],
+  "timestamp": "2026-09-23T16:57:08.236216+00:00",
+  "verification_status": "CRYPTOGRAPHICALLY VERIFIED FORENSIC MATCH",
+  "watermark": {
+    "algorithm": "DCT",
+    "confidence": 0.99,
+    "detected": true,
+    "page": 1,
+    "watermark_id": "WM-F2F596A76D9B88BC"
+  },
+  "watermark_id": "WM-F2F596A76D9B88BC",
+  "watermark_valid": true
+}

@@ -7,13 +7,25 @@ import type { AuthUser } from './types/auth'
 import { LoginPage } from './components/LoginPage'
 import { AppShell } from './components/AppShell'
 import { WorkflowPipeline } from './components/WorkflowPipeline'
+import { EvidenceGraph } from './components/EvidenceGraph'
 import {
+  Alert,
   Box,
   Button,
   Card,
   CardContent,
   Chip,
   Container,
+  Autocomplete,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogTitle,
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableRow,
   TextField,
   Typography,
   Stack,
@@ -39,6 +51,7 @@ type DocumentRecord = {
 
 type DecryptResult = {
   error?: string
+  download_error?: string
   document_id?: string
   encrypted_path?: string
   plaintext_path?: string
@@ -86,6 +99,7 @@ function Dashboard({ user }: { user: AuthUser }) {
           <Typography variant="overline" sx={{ color: '#8ec5ff', letterSpacing: 1.2 }}>{user.role} WORKSPACE</Typography>
           <Typography variant="h4" sx={{ mt: 0.5, fontWeight: 800 }}>Welcome, {user.display_name}</Typography>
           <Typography sx={{ mt: 1, color: '#c6d8ec' }}>{roleDescription}</Typography>
+          <Typography variant="caption" sx={{ display: 'block', mt: 1.5, color: '#8ec5ff' }}>SESSION: {user.user_id} · ROLE: {user.role}{user.recipient_id ? ` · RECIPIENT: ${user.recipient_id}` : ''}</Typography>
         </CardContent>
       </Card>
       <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 2.5 }}>
@@ -101,6 +115,13 @@ function Dashboard({ user }: { user: AuthUser }) {
       ))}
       </Box>
 
+      <Card sx={{ background: whiteTheme.panel, border: `1px solid ${whiteTheme.line}`, boxShadow: whiteTheme.shadow, borderRadius: 3 }}>
+        <CardContent sx={{ p: 3 }}>
+          <Typography variant="h6" sx={{ color: whiteTheme.text, fontWeight: 700 }}>{user.role === 'RECIPIENT' ? 'My secure activity' : user.role === 'FORENSIC_INVESTIGATOR' ? 'Investigation control room' : 'Administrative control room'}</Typography>
+          <Typography variant="body2" sx={{ mt: 1, color: whiteTheme.subtext }}>{user.role === 'RECIPIENT' ? 'Assigned documents, protected downloads, and notification status are isolated to your recipient identity.' : user.role === 'FORENSIC_INVESTIGATOR' ? 'Review leaked evidence, signed events, graph relationships, and ledger integrity.' : 'Manage recipients, user access, encrypted documents, distribution, and system integrity.'}</Typography>
+        </CardContent>
+      </Card>
+
       <Card sx={{ gridColumn: '1 / -1', background: whiteTheme.panel, border: `1px solid ${whiteTheme.line}`, boxShadow: whiteTheme.shadow, borderRadius: 3 }}>
         <CardContent sx={{ p: 3 }}>
           <WorkflowPipeline />
@@ -115,6 +136,8 @@ function DocumentsPage() {
   const [selectedFile, setSelectedFile] = useState<File | null>(null)
   const [status, setStatus] = useState<string>('No upload yet')
   const [uploading, setUploading] = useState(false)
+  const [selectedDocument, setSelectedDocument] = useState<DocumentRecord | null>(null)
+  const [documentName, setDocumentName] = useState('')
 
   const loadDocuments = async () => {
     try {
@@ -179,11 +202,17 @@ function DocumentsPage() {
                   <Typography variant="body2" sx={{ color: whiteTheme.subtext }}>ID: {doc.document_id}</Typography>
                   <Typography variant="body2" sx={{ color: whiteTheme.subtext }}>Hash: {doc.original_hash ?? 'n/a'}</Typography>
                   <Typography variant="body2" sx={{ color: whiteTheme.subtext }}>Encrypted path: {doc.encrypted_path ?? 'n/a'}</Typography>
+                  <Button size="small" variant="outlined" onClick={() => { setSelectedDocument(doc); setDocumentName(doc.original_filename) }}>Manage</Button>
                 </CardContent>
               </Card>
             ))}
           </Box>
         </Box>
+        <Dialog open={Boolean(selectedDocument)} onClose={() => setSelectedDocument(null)} fullWidth maxWidth="sm">
+          <DialogTitle>Manage document</DialogTitle>
+          <DialogContent dividers>{selectedDocument && <Stack spacing={2} sx={{ pt: 1 }}><TextField label="Document filename" value={documentName} onChange={(event) => setDocumentName(event.target.value)} fullWidth /><Typography>ID: {selectedDocument.document_id}</Typography><Typography>Hash: {selectedDocument.original_hash ?? 'n/a'}</Typography><Typography>Encryption: {selectedDocument.encryption_algorithm ?? 'AES-256-GCM'}</Typography><Typography>Watermarked copy: {selectedDocument.watermarked_path ? 'Available' : 'Not created'}</Typography></Stack>}</DialogContent>
+          <DialogActions><Button onClick={() => setSelectedDocument(null)}>Cancel</Button><Button variant="contained" onClick={() => { if (!selectedDocument) return; void axios.patch(`${API_BASE}/documents/${selectedDocument.document_id}`, { original_filename: documentName }).then(() => { setStatus('Document updated'); setSelectedDocument(null); return loadDocuments() }).catch((err) => setStatus(axios.isAxiosError(err) ? String(err.response?.data?.detail ?? 'Update failed') : 'Update failed')) }}>Save changes</Button><Button color="error" onClick={() => { if (!selectedDocument) return; void axios.delete(`${API_BASE}/documents/${selectedDocument.document_id}`).then(() => { setSelectedDocument(null); return loadDocuments() }).catch((err) => setStatus(axios.isAxiosError(err) ? String(err.response?.data?.detail ?? 'Delete failed') : 'Delete failed')) }}>Delete document</Button></DialogActions>
+        </Dialog>
       </CardContent>
     </Card>
   )
@@ -200,7 +229,7 @@ function DistributionPage() {
     if (!documentId || selected.length === 0) { setStatus('Choose a document and at least one recipient.'); return }
     try { const { data } = await axios.post(`${API_BASE}/documents/${documentId}/distribution`, { recipient_ids: selected }); setStatus(`Created ${data.packages.length} recipient packages from one ciphertext.`) } catch (err: unknown) { setStatus(axios.isAxiosError(err) ? String(err.response?.data?.detail ?? 'Distribution failed') : 'Distribution failed') }
   }
-  return <Card sx={{ background: whiteTheme.panel, border: `1px solid ${whiteTheme.line}`, boxShadow: whiteTheme.shadow, borderRadius: 3 }}><CardContent sx={{ p: 3 }}><Typography variant="h5" sx={{ mb: 2, color: whiteTheme.text, fontWeight: 700 }}>Distribution</Typography><Stack spacing={2}><TextField select SelectProps={{ native: true }} label="Encrypted document" value={documentId} onChange={(event) => setDocumentId(event.target.value)}><option value="">Select a document</option>{documents.map((doc) => <option key={doc.document_id} value={doc.document_id}>{doc.original_filename} ({doc.document_id})</option>)}</TextField><Typography variant="subtitle2">Authorized recipients</Typography><Typography variant="body2" sx={{ color: whiteTheme.subtext }}>Select one or more recipients. One document ciphertext will receive one key package per selected recipient.</Typography>{recipients.map((recipient) => <label key={recipient.recipient_id}><input type="checkbox" checked={selected.includes(recipient.recipient_id)} onChange={(event) => setSelected((current) => event.target.checked ? [...current, recipient.recipient_id] : current.filter((id) => id !== recipient.recipient_id))} /> {recipient.name} ({recipient.recipient_id})</label>)}<Typography variant="body2" sx={{ color: whiteTheme.primary, fontWeight: 700 }}>{selected.length} recipient{selected.length === 1 ? '' : 's'} selected</Typography><Button variant="contained" onClick={distribute} disabled={!documentId || selected.length === 0} sx={{ background: whiteTheme.primary, textTransform: 'none' }}>Create recipient packages</Button>{status && <Typography variant="body2" sx={{ color: whiteTheme.subtext }}>{status}</Typography>}</Stack></CardContent></Card>
+  return <Card sx={{ background: whiteTheme.panel, border: `1px solid ${whiteTheme.line}`, boxShadow: whiteTheme.shadow, borderRadius: 3 }}><CardContent sx={{ p: 3 }}><Typography variant="h5" sx={{ mb: 2, color: whiteTheme.text, fontWeight: 700 }}>Distribution</Typography><Stack spacing={2}><Autocomplete options={documents} value={documents.find((doc) => doc.document_id === documentId) ?? null} getOptionLabel={(doc) => `${doc.original_filename} (${doc.document_id})`} onChange={(_, value) => setDocumentId(value?.document_id ?? '')} renderInput={(params) => <TextField {...params} label="Search encrypted documents" />} /><Typography variant="subtitle2">Authorized recipients</Typography><Typography variant="body2" sx={{ color: whiteTheme.subtext }}>Select one or more recipients. One document ciphertext will receive one key package per selected recipient.</Typography>{recipients.map((recipient) => <label key={recipient.recipient_id}><input type="checkbox" checked={selected.includes(recipient.recipient_id)} onChange={(event) => setSelected((current) => event.target.checked ? [...current, recipient.recipient_id] : current.filter((id) => id !== recipient.recipient_id))} /> {recipient.name} ({recipient.recipient_id})</label>)}<Typography variant="body2" sx={{ color: whiteTheme.primary, fontWeight: 700 }}>{selected.length} recipient{selected.length === 1 ? '' : 's'} selected</Typography><Button variant="contained" onClick={distribute} disabled={!documentId || selected.length === 0} sx={{ background: whiteTheme.primary, textTransform: 'none' }}>Create recipient packages</Button>{status && <Typography variant="body2" sx={{ color: whiteTheme.subtext }}>{status}</Typography>}</Stack></CardContent></Card>
 }
 
 function DecryptionPage() {
@@ -227,7 +256,13 @@ function DecryptionPage() {
     try {
       const { data } = await axios.post(`${API_BASE}/documents/decrypt`, { document_id: selectedDocumentId })
       setResult(data)
-      if (data.watermark_id) await downloadCopy(data.download_url ?? `/api/documents/${data.document_id}/download?watermark_id=${data.watermark_id}`, data.download_filename)
+      if (data.watermark_id) {
+        try {
+          await downloadCopy(data.download_url ?? `/api/documents/${data.document_id}/download?watermark_id=${data.watermark_id}`, data.download_filename)
+        } catch {
+          setResult({ ...data, download_error: 'The protected copy was created, but the browser download failed. Use Download again.' })
+        }
+      }
     } catch (err: unknown) {
       if (axios.isAxiosError(err)) {
         setResult({ error: err.response?.data?.detail ?? 'Decryption failed' })
@@ -241,7 +276,8 @@ function DecryptionPage() {
 
   const downloadCopy = async (downloadUrl = result?.download_url ?? (result?.document_id && result?.watermark_id ? `/api/documents/${result.document_id}/download?watermark_id=${result.watermark_id}` : undefined), filename = result?.download_filename ?? 'document') => {
     if (!downloadUrl) return
-    const response = await axios.get(`http://127.0.0.1:8000${downloadUrl}`, { responseType: 'blob' })
+    const absoluteUrl = downloadUrl.startsWith('http') ? downloadUrl : `${API_BASE}${downloadUrl.replace(/^\/api/, '')}`
+    const response = await axios.get(absoluteUrl, { responseType: 'blob' })
     const url = URL.createObjectURL(response.data)
     const link = document.createElement('a')
     link.href = url
@@ -263,21 +299,13 @@ function DecryptionPage() {
             </Typography>
           </Box>
 
-          <TextField
-            select
-            SelectProps={{ native: true }}
-            label="Encrypted document"
-            value={selectedDocumentId}
-            onChange={(event) => {
-              setSelectedDocumentId(event.target.value)
-            }}
-            fullWidth
-          >
-            <option value="">Select a document</option>
-            {documents.map((doc) => (
-              <option key={doc.document_id} value={doc.document_id}>{doc.original_filename} (encrypted)</option>
-            ))}
-          </TextField>
+          <Autocomplete
+            options={documents}
+            value={documents.find((doc) => doc.document_id === selectedDocumentId) ?? null}
+            getOptionLabel={(doc) => `${doc.original_filename} (${doc.document_id})`}
+            onChange={(_, value) => setSelectedDocumentId(value?.document_id ?? '')}
+            renderInput={(params) => <TextField {...params} label="Search encrypted documents" fullWidth />}
+          />
 
           <Typography variant="body2" sx={{ color: whiteTheme.subtext }}>Recipient identity comes from the authenticated offline session.</Typography>
 
@@ -301,6 +329,7 @@ function DecryptionPage() {
                     <Typography variant="body2" sx={{ color: whiteTheme.subtext }}>Event ID: {String(result.event_id ?? 'n/a')}</Typography>
                     <Typography variant="body2" sx={{ color: whiteTheme.subtext }}>Decrypted bytes: {String(result.decrypted_bytes ?? 'n/a')}</Typography>
                     <Typography variant="body2" sx={{ color: whiteTheme.subtext }}>SHA3-256: {String(result.sha3_256 ?? 'n/a')}</Typography>
+                    {result.download_error && <Typography variant="body2" sx={{ color: whiteTheme.warning }}>{result.download_error}</Typography>}
                     <Button variant="contained" onClick={() => void downloadCopy()} disabled={!result.watermark_id} sx={{ mt: 1, background: whiteTheme.primary, textTransform: 'none' }}>Download</Button>
                   </Box>
                 )}
@@ -409,7 +438,11 @@ function RecipientsPage() {
   const [recipients, setRecipients] = useState<any[]>([])
   const [name, setName] = useState('')
   const [department, setDepartment] = useState('')
+  const [username, setUsername] = useState('')
+  const [password, setPassword] = useState('')
+  const [editingId, setEditingId] = useState<string | null>(null)
   const [status, setStatus] = useState('')
+  const [open, setOpen] = useState(false)
 
   const loadRecipients = async () => {
     try {
@@ -430,10 +463,19 @@ function RecipientsPage() {
       return
     }
     try {
-      await axios.post(`${API_BASE}/recipients`, { name, department })
-      setStatus(`Recipient created: ${name}`)
+      if (editingId) {
+        await axios.patch(`${API_BASE}/recipients/${editingId}`, { name, department })
+        setStatus(`Recipient updated: ${name}`)
+      } else {
+        await axios.post(`${API_BASE}/recipients`, { name, department, username: username || null, password: password || null })
+        setStatus(username ? `Recipient and login created: ${username}` : `Recipient created: ${name}. Create a login from Admin Users.`)
+      }
       setName('')
       setDepartment('')
+      setUsername('')
+      setPassword('')
+      setEditingId(null)
+      setOpen(false)
       await loadRecipients()
     } catch (err: unknown) {
       if (axios.isAxiosError(err)) setStatus(err.response?.data?.detail ?? 'Create failed')
@@ -446,9 +488,7 @@ function RecipientsPage() {
       <CardContent sx={{ p: 3 }}>
         <Typography variant="h5" sx={{ mb: 2, color: whiteTheme.text, fontWeight: 700 }}>Recipients</Typography>
         <Box sx={{ display: 'grid', gap: 2.5 }}>
-          <TextField label="Name" value={name} onChange={(e) => setName(e.target.value)} fullWidth />
-          <TextField label="Department" value={department} onChange={(e) => setDepartment(e.target.value)} fullWidth />
-          <Button variant="contained" onClick={handleCreate} sx={{ background: whiteTheme.primary, borderRadius: 2, textTransform: 'none', fontWeight: 700 }}>Create recipient</Button>
+          <Button variant="contained" onClick={() => { setEditingId(null); setName(''); setDepartment(''); setUsername(''); setPassword(''); setOpen(true) }} sx={{ background: whiteTheme.primary, borderRadius: 2, textTransform: 'none', fontWeight: 700 }}>Add recipient</Button>
           {status && <Typography variant="body2" sx={{ color: whiteTheme.subtext }}>{status}</Typography>}
 
           <Box sx={{ display: 'grid', gap: 1 }}>
@@ -458,11 +498,14 @@ function RecipientsPage() {
                   <Typography variant="subtitle1" sx={{ color: whiteTheme.text, fontWeight: 700 }}>{recipient.name}</Typography>
                   <Typography variant="body2" sx={{ color: whiteTheme.subtext }}>ID: {recipient.recipient_id}</Typography>
                   <Typography variant="body2" sx={{ color: whiteTheme.subtext }}>Department: {recipient.department}</Typography>
+                  <Typography variant="body2" sx={{ color: recipient.active ? whiteTheme.success : whiteTheme.danger }}>{recipient.active ? 'Active' : 'Disabled'}</Typography>
+                  <Stack direction="row" spacing={1} sx={{ mt: 1 }}><Button size="small" onClick={() => { setEditingId(recipient.recipient_id); setName(recipient.name); setDepartment(recipient.department); setOpen(true) }}>Edit</Button><Button size="small" color="warning" onClick={() => void axios.patch(`${API_BASE}/recipients/${recipient.recipient_id}`, { name: recipient.name, department: recipient.department, active: !recipient.active }).then(() => loadRecipients())}>Toggle status</Button><Button size="small" color="error" onClick={() => void axios.delete(`${API_BASE}/recipients/${recipient.recipient_id}`).then(() => loadRecipients())}>Disable</Button></Stack>
                 </CardContent>
               </Card>
             ))}
           </Box>
         </Box>
+        <Dialog open={open} onClose={() => setOpen(false)} fullWidth maxWidth="sm"><DialogTitle>{editingId ? 'Edit recipient' : 'Add recipient and login'}</DialogTitle><DialogContent dividers><Stack spacing={2} sx={{ pt: 1 }}><TextField label="Name" value={name} onChange={(e) => setName(e.target.value)} fullWidth /><TextField label="Department" value={department} onChange={(e) => setDepartment(e.target.value)} fullWidth />{!editingId && <><TextField label="Login username" value={username} onChange={(e) => setUsername(e.target.value)} fullWidth /><TextField label="Login password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} helperText="At least 8 characters" fullWidth /></>}</Stack></DialogContent><DialogActions><Button onClick={() => setOpen(false)}>Cancel</Button><Button variant="contained" onClick={() => void handleCreate()}>{editingId ? 'Save changes' : 'Create recipient'}</Button></DialogActions></Dialog>
       </CardContent>
     </Card>
   )
@@ -512,6 +555,41 @@ function LedgerPage() {
   )
 }
 
+function EventsPage() {
+  const [events, setEvents] = useState<any[]>([])
+  const [selected, setSelected] = useState<any>(null)
+  const [verification, setVerification] = useState<any>(null)
+
+  useEffect(() => { void axios.get(`${API_BASE}/events`).then(({ data }) => setEvents(data)).catch(() => setEvents([])) }, [])
+
+  const inspect = async (event: any) => {
+    setSelected(event)
+    try {
+      const { data } = await axios.post(`${API_BASE}/forensics/verify/${event.event_id}`)
+      setVerification(data)
+    } catch {
+      setVerification({ valid: false, reason: 'Verification unavailable' })
+    }
+  }
+
+  return (
+    <Box sx={{ display: 'grid', gap: 2 }}>
+      <Card sx={{ background: whiteTheme.panel, border: `1px solid ${whiteTheme.line}`, boxShadow: whiteTheme.shadow, borderRadius: 3 }}>
+        <CardContent sx={{ p: 3 }}>
+          <Typography variant="h5" sx={{ mb: 2, color: whiteTheme.text, fontWeight: 700 }}>Decryption Events</Typography>
+          {events.length === 0 ? <Typography variant="body2" sx={{ color: whiteTheme.subtext }}>No signed decryption events recorded.</Typography> : events.map((event) => (
+            <Box key={event.event_id} sx={{ display: 'flex', gap: 2, alignItems: 'center', justifyContent: 'space-between', borderBottom: `1px solid ${whiteTheme.line}`, py: 1.5, flexWrap: 'wrap' }}>
+              <Box><Typography fontWeight={700}>{event.event_id}</Typography><Typography variant="body2" sx={{ color: whiteTheme.subtext }}>{event.recipient_id} · {event.document_id} · {event.watermark_id}</Typography></Box>
+              <Button size="small" variant="outlined" onClick={() => void inspect(event)} sx={{ textTransform: 'none' }}>Verify event</Button>
+            </Box>
+          ))}
+        </CardContent>
+      </Card>
+      {selected && <Card sx={{ background: whiteTheme.panelAlt, border: `1px solid ${whiteTheme.line}`, borderRadius: 3 }}><CardContent sx={{ p: 3 }}><Typography variant="h6" sx={{ color: whiteTheme.text }}>Event evidence</Typography><Stack spacing={0.75} sx={{ mt: 1.5 }}><Typography variant="body2">Event: {selected.event_id}</Typography><Typography variant="body2">Session: {selected.session_id}</Typography><Typography variant="body2">Watermark: {selected.watermark_id}</Typography><Typography variant="body2">Record hash: {selected.event_hash}</Typography><Typography variant="body2">Signature algorithm: {selected.signature_algorithm}</Typography><Typography variant="body2" sx={{ color: verification?.valid ? whiteTheme.success : whiteTheme.danger, fontWeight: 700 }}>Cryptographic verification: {verification?.valid ? 'VALID' : 'FAILED'}</Typography>{verification?.block && <Typography variant="body2">Ledger block: #{verification.block.block_number} · {verification.block.block_hash}</Typography>}</Stack></CardContent></Card>}
+    </Box>
+  )
+}
+
 function ForensicsPage() {
   const [eventId, setEventId] = useState('')
   const [evidence, setEvidence] = useState<File | null>(null)
@@ -550,6 +628,16 @@ function ForensicsPage() {
     try { const { data } = await axios.post(`${API_BASE}/forensics/analyze-upload`, form); setResult(data) } catch (err: unknown) { setResult({ error: axios.isAxiosError(err) ? String(err.response?.data?.detail ?? 'Analysis failed') : 'Analysis failed' }) } finally { setLoading(false) }
   }
 
+  const downloadReport = async (caseId: string) => {
+    const response = await axios.get(`${API_BASE}/forensics/cases/${caseId}/report.pdf`, { responseType: 'blob' })
+    const url = URL.createObjectURL(response.data)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = `TraceSeal-${caseId}.pdf`
+    link.click()
+    URL.revokeObjectURL(url)
+  }
+
   return (
     <Card sx={{ background: whiteTheme.panel, border: `1px solid ${whiteTheme.line}`, boxShadow: whiteTheme.shadow, borderRadius: 3 }}>
       <CardContent sx={{ p: 3 }}>
@@ -577,15 +665,23 @@ function ForensicsPage() {
                     const isAnalysis = Boolean(result.watermark || result.attribution_confirmed !== undefined)
                     return (
                       <Box sx={{ display: 'grid', gap: 1 }}>
+                        {isAnalysis && <Typography variant="h6" sx={{ color: result.attribution_confirmed ? whiteTheme.success : whiteTheme.danger, fontWeight: 800 }}>{result.verification_status ?? 'Verification result'}</Typography>}
                         <Typography variant="body2" sx={{ color: whiteTheme.subtext }}>Event ID: {result.event_id ?? 'Not found'}</Typography>
                         <Typography variant="body2" sx={{ color: whiteTheme.subtext }}>Recipient: {recipientName}{recipientId ? ` (${recipientId})` : ''}</Typography>
+                        {result.document && <Typography variant="body2" sx={{ color: whiteTheme.subtext }}>Document: {result.document.name ?? result.document.document_id}</Typography>}
                         <Typography variant="body2" sx={{ color: whiteTheme.subtext }}>Session: {result.session_id ?? 'See event record'}</Typography>
                         <Typography variant="body2" sx={{ color: whiteTheme.subtext }}>Watermark: {watermarkId ?? 'Not detected'}</Typography>
-                        <Typography variant="body2" sx={{ color: whiteTheme.subtext }}>Signature: {result.signature_algorithm ?? (result.signature_valid === true ? 'VALID' : result.signature_valid === false ? 'INVALID' : 'See event record')}</Typography>
+                        <Typography variant="body2" sx={{ color: result.watermark_valid ? whiteTheme.success : whiteTheme.danger }}>Watermark integrity: {result.watermark_valid ? 'VALID' : 'FAILED'}</Typography>
+                        <Typography variant="body2" sx={{ color: result.signature_valid ? whiteTheme.success : whiteTheme.danger }}>ML-DSA signature: {result.signature_valid ? 'VALID' : 'FAILED'}</Typography>
                         {isAnalysis && <>
                           <Typography variant="body2" sx={{ color: result.ledger_match ? whiteTheme.success : whiteTheme.danger }}>Ledger match: {result.ledger_match ? 'PASS' : 'FAIL'}</Typography>
                           <Typography variant="body2" sx={{ color: result.chain_valid ? whiteTheme.success : whiteTheme.danger }}>Ledger chain: {result.chain_valid ? 'VALID' : 'INVALID'}</Typography>
+                          <Typography variant="body2" sx={{ color: result.document_hash_match ? whiteTheme.success : whiteTheme.danger }}>Document record: {result.document_hash_match ? 'MATCH' : 'MISMATCH'}</Typography>
+                          {result.block && <Typography variant="body2" sx={{ color: whiteTheme.subtext }}>Block #{result.block.block_number} · Record hash {result.block.record_hash}</Typography>}
                           <Typography variant="body2" sx={{ color: result.attribution_confirmed ? whiteTheme.success : whiteTheme.danger, fontWeight: 700 }}>Attribution: {result.attribution_confirmed ? 'CONFIRMED' : 'NOT CONFIRMED'}</Typography>
+                          {result.evidence_graph && <EvidenceGraph nodes={result.evidence_graph.nodes} />}
+                          {result.timeline && <Box sx={{ mt: 2 }}><Typography variant="subtitle2" sx={{ mb: 1, color: whiteTheme.text }}>Evidence Timeline</Typography>{result.timeline.map((item: any) => <Box key={item.label} sx={{ display: 'flex', justifyContent: 'space-between', gap: 2, borderBottom: `1px solid ${whiteTheme.line}`, py: 0.75 }}><Typography variant="body2">{item.label}</Typography><Typography variant="caption" sx={{ color: item.status === 'PASS' ? whiteTheme.success : whiteTheme.danger }}>{item.timestamp ?? 'Unavailable'}</Typography></Box>)}</Box>}
+                          {result.case_id && <Button variant="outlined" onClick={() => void downloadReport(result.case_id)} sx={{ mt: 2, textTransform: 'none' }}>Download PDF evidence report</Button>}
                         </>}
                       </Box>
                     )
@@ -609,15 +705,48 @@ function CasesPage() {
 function ReportsPage() {
   const [cases, setCases] = useState<any[]>([])
   useEffect(() => { void axios.get(`${API_BASE}/forensics/cases`).then(({ data }) => setCases(data)).catch(() => setCases([])) }, [])
-  return <Card><CardContent><Typography variant="h5" sx={{ mb: 2 }}>Reports</Typography>{cases.map((item) => <Button key={item.case_id} href={`${API_BASE}/forensics/cases/${item.case_id}/report`} target="_blank" sx={{ display: 'block', textTransform: 'none' }}>Open HTML report: {item.case_id}</Button>)}</CardContent></Card>
+  const downloadReport = async (caseId: string) => {
+    const response = await axios.get(`${API_BASE}/forensics/cases/${caseId}/report.pdf`, { responseType: 'blob' })
+    const url = URL.createObjectURL(response.data)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = `TraceSeal-${caseId}.pdf`
+    link.click()
+    URL.revokeObjectURL(url)
+  }
+  return <Card><CardContent><Typography variant="h5" sx={{ mb: 2 }}>Reports</Typography>{cases.length === 0 ? <Typography color="text.secondary">No forensic reports generated yet.</Typography> : cases.map((item) => <Box key={item.case_id} sx={{ display: 'flex', gap: 1, alignItems: 'center', borderBottom: `1px solid ${whiteTheme.line}`, py: 1 }}><Typography sx={{ flex: 1 }}>{item.case_id} · {item.attribution_confirmed ? 'Verified' : 'Not verified'}</Typography><Button variant="outlined" onClick={() => void downloadReport(item.case_id)} sx={{ textTransform: 'none' }}>Download PDF</Button></Box>)}</CardContent></Card>
+}
+
+function NotificationsPage({ user }: { user: AuthUser }) {
+  const [items, setItems] = useState<any[]>([])
+  const [loading, setLoading] = useState(true)
+  useEffect(() => {
+    const seen = JSON.parse(window.localStorage.getItem(`traceseal_seen_notifications_${user.user_id}`) ?? '[]') as string[]
+    void axios.get(`${API_BASE}/notifications`).then(({ data }) => setItems((data.items ?? []).map((item: any) => ({ ...item, read: item.read || seen.includes(item.id) })))).catch(() => setItems([])).finally(() => setLoading(false))
+  }, [user.user_id])
+  const markSeen = () => {
+    const ids = items.map((item) => item.id)
+    window.localStorage.setItem(`traceseal_seen_notifications_${user.user_id}`, JSON.stringify(ids))
+    setItems((current) => current.map((item) => ({ ...item, read: true })))
+  }
+  return <Card><CardContent><Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}><Typography variant="h5">Notifications</Typography><Button variant="outlined" onClick={markSeen} disabled={items.every((item) => item.read)} sx={{ textTransform: 'none' }}>Mark all seen</Button></Box>{loading ? <Typography color="text.secondary">Loading notifications...</Typography> : items.length === 0 ? <Typography color="text.secondary">No document notifications yet.</Typography> : <Table size="small"><TableHead><TableRow><TableCell>Type</TableCell><TableCell>Document</TableCell><TableCell>Message</TableCell><TableCell>Status</TableCell><TableCell>Time</TableCell></TableRow></TableHead><TableBody>{items.map((item) => <TableRow key={item.id}><TableCell>{item.type}</TableCell><TableCell>{item.document_id}</TableCell><TableCell>{item.message}</TableCell><TableCell><Chip size="small" label={item.type === 'DOWNLOAD' ? 'DOWNLOADED' : item.read ? 'SEEN' : 'UNSEEN'} color={item.type === 'DOWNLOAD' ? 'success' : item.read ? 'default' : 'warning'} /></TableCell><TableCell>{item.timestamp ? new Date(item.timestamp).toLocaleString() : 'n/a'}</TableCell></TableRow>)}</TableBody></Table>}</CardContent></Card>
 }
 
 function SecurityPage() {
-  return <Card><CardContent><Typography variant="h5" sx={{ mb: 2 }}>Security Architecture</Typography><Stack spacing={1}>{['AES-256-GCM', 'ML-KEM-768', 'ML-DSA-65', 'SHA3-256', 'DCT watermark', 'Encrypted local keystore', 'Three-node local ledger, 2-of-3 quorum', 'Offline authentication'].map((item) => <Chip key={item} label={item} sx={{ justifyContent: 'flex-start' }} />)}<Typography variant="body2" sx={{ mt: 2 }}>NO CLOUD | NO PUBLIC BLOCKCHAIN | NO EXTERNAL AUTHENTICATION | NO EXTERNAL RUNTIME API</Typography></Stack></CardContent></Card>
+  const [status, setStatus] = useState<Record<string, any> | null>(null)
+  useEffect(() => { void axios.get(`${API_BASE}/system/status`).then(({ data }) => setStatus(data)).catch(() => setStatus(null)) }, [])
+  const checks = status ? [
+    ['Authentication', 'READY', 'success'], ['Authorization', 'READY', 'success'], ['PQC backend', status.pqc, status.pqc === 'REAL LIBOQS' ? 'success' : 'warning'],
+    ['ML-KEM', status.ml_kem ? 'REAL' : 'COMPATIBILITY', status.ml_kem ? 'success' : 'warning'], ['ML-DSA', status.ml_dsa ? 'REAL' : 'COMPATIBILITY', status.ml_dsa ? 'success' : 'warning'], ['Watermark engine', status.watermark_engine, 'success'], ['Ledger', status.ledger?.valid ? 'READY' : 'FAILED', status.ledger?.valid ? 'success' : 'error'],
+    ['Database', status.database ? 'READY' : 'FAILED', status.database ? 'success' : 'error'], ['Storage', status.storage ? 'READY' : 'FAILED', status.storage ? 'success' : 'error'], ['Audit logging', status.audit_logging ? 'READY' : 'FAILED', status.audit_logging ? 'success' : 'error'],
+  ] : []
+  return <Card><CardContent><Typography variant="h5" sx={{ mb: 2 }}>Security Status Center</Typography><Typography variant="body2" sx={{ mb: 2 }}>Deployment: {status?.deployment ?? 'Loading...'}</Typography>{status?.pqc_reason && <Alert severity={status.pqc === 'REAL LIBOQS' ? 'success' : 'warning'} sx={{ mb: 2 }}>{status.pqc_reason}</Alert>}<Stack spacing={1}>{checks.map(([label, value, color]) => <Box key={String(label)} sx={{ display: 'flex', justifyContent: 'space-between', borderBottom: `1px solid ${whiteTheme.line}`, py: 1 }}><Typography>{String(label)}</Typography><Chip size="small" label={String(value)} color={color as 'success' | 'warning' | 'error'} /></Box>)}</Stack></CardContent></Card>
 }
 
 function SettingsPage() {
-  return <Card><CardContent><Typography variant="h5" sx={{ mb: 2 }}>Settings</Typography><Typography variant="body2">AIR-GAPPED MODE: ON</Typography><Typography variant="body2">OFFLINE: ON</Typography><Typography variant="body2">Local storage and encrypted keystore are active.</Typography></CardContent></Card>
+  const [status, setStatus] = useState<Record<string, any> | null>(null)
+  useEffect(() => { void axios.get(`${API_BASE}/system/status`).then(({ data }) => setStatus(data)).catch(() => setStatus(null)) }, [])
+  return <Card><CardContent><Typography variant="h5" sx={{ mb: 2 }}>System Settings</Typography><Stack spacing={1}><Typography variant="body2">Deployment: {status?.deployment ?? 'Loading...'}</Typography><Typography variant="body2">External KMS: NOT USED</Typography><Typography variant="body2">Public blockchain: NOT USED</Typography><Typography variant="body2">PQC backend: {status?.pqc ?? 'Loading...'}</Typography><Typography variant="body2">Ledger: {status?.ledger?.valid ? 'VALID' : 'UNAVAILABLE OR INVALID'}</Typography><Typography variant="body2">Storage: {status?.storage ? 'READY' : 'UNAVAILABLE'}</Typography></Stack></CardContent></Card>
 }
 
 function AdminUsersPage() {
@@ -628,6 +757,8 @@ function AdminUsersPage() {
   const [displayName, setDisplayName] = useState('')
   const [recipientId, setRecipientId] = useState('')
   const [status, setStatus] = useState('')
+  const [open, setOpen] = useState(false)
+  const [editingUser, setEditingUser] = useState<any | null>(null)
 
   const load = async () => {
     try {
@@ -645,23 +776,21 @@ function AdminUsersPage() {
   useEffect(() => { void load() }, [])
 
   const createUser = async () => {
-    if (!username || !password || !displayName) {
-      setStatus('Username, password, and display name are required.')
+    if (!username || !displayName || (!editingUser && !password)) {
+      setStatus('Username, display name, and a password for new users are required.')
       return
     }
     try {
-      await axios.post(`${API_BASE}/admin/users`, {
-        username,
-        password,
-        display_name: displayName,
-        role: 'RECIPIENT',
-        recipient_id: recipientId || null,
-      })
-      setStatus(`Created login for ${displayName}. Give them the username and password securely.`)
+      const payload = { username, password: password || null, display_name: displayName, role: 'RECIPIENT', recipient_id: recipientId || null }
+      if (editingUser) await axios.patch(`${API_BASE}/admin/users/${editingUser.user_id}/details`, payload)
+      else await axios.post(`${API_BASE}/admin/users`, payload)
+      setStatus(`${editingUser ? 'Updated' : 'Created'} login for ${displayName}.`)
       setUsername('')
       setPassword('')
       setDisplayName('')
       setRecipientId('')
+      setOpen(false)
+      setEditingUser(null)
       await load()
     } catch (err: unknown) {
       setStatus(axios.isAxiosError(err) ? String(err.response?.data?.detail ?? 'User creation failed') : 'User creation failed')
@@ -674,17 +803,11 @@ function AdminUsersPage() {
         <Typography variant="h5" sx={{ mb: 2, color: whiteTheme.text, fontWeight: 700 }}>Admin Users</Typography>
         <Stack spacing={2}>
           <Typography variant="body2" sx={{ color: whiteTheme.subtext }}>Create the recipient login after creating the recipient record. The password is chosen here by the administrator.</Typography>
-          <TextField label="Username" value={username} onChange={(event) => setUsername(event.target.value)} />
-          <TextField label="Temporary password" type="password" value={password} onChange={(event) => setPassword(event.target.value)} helperText="At least 8 characters." />
-          <TextField label="Display name" value={displayName} onChange={(event) => setDisplayName(event.target.value)} />
-          <TextField select SelectProps={{ native: true }} label="Link to recipient" value={recipientId} onChange={(event) => setRecipientId(event.target.value)}>
-            <option value="">Select recipient</option>
-            {recipients.map((recipient) => <option key={recipient.recipient_id} value={recipient.recipient_id}>{recipient.name} ({recipient.recipient_id})</option>)}
-          </TextField>
-          <Button variant="contained" onClick={createUser} sx={{ background: whiteTheme.primary, textTransform: 'none' }}>Create recipient login</Button>
+          <Button variant="contained" onClick={() => { setEditingUser(null); setUsername(''); setPassword(''); setDisplayName(''); setRecipientId(''); setOpen(true) }} sx={{ background: whiteTheme.primary, textTransform: 'none' }}>Add user login</Button>
           {status && <Typography variant="body2" sx={{ color: whiteTheme.subtext }}>{status}</Typography>}
-          {users.map((user) => <Box key={user.user_id} sx={{ borderTop: `1px solid ${whiteTheme.line}`, pt: 1 }}><Typography fontWeight={700}>{user.display_name}</Typography><Typography variant="body2">{user.username} | {user.role} | {user.recipient_id ?? 'not linked'} | {user.active ? 'active' : 'disabled'}</Typography></Box>)}
+          {users.map((user) => <Box key={user.user_id} sx={{ borderTop: `1px solid ${whiteTheme.line}`, pt: 1 }}><Typography fontWeight={700}>{user.display_name}</Typography><Typography variant="body2">{user.username} | {user.role} | {user.recipient_id ?? 'not linked'} | {user.active ? 'active' : 'disabled'}</Typography><Button size="small" onClick={() => { setEditingUser(user); setUsername(user.username); setPassword(''); setDisplayName(user.display_name); setRecipientId(user.recipient_id ?? ''); setOpen(true) }}>Edit</Button><Button size="small" color={user.active ? 'warning' : 'success'} onClick={() => void axios.patch(`${API_BASE}/admin/users/${user.user_id}`, { active: !user.active }).then(() => load())}>{user.active ? 'Disable login' : 'Enable login'}</Button><Button size="small" color="error" onClick={() => void axios.delete(`${API_BASE}/admin/users/${user.user_id}`).then(() => load())}>Delete</Button></Box>)}
         </Stack>
+        <Dialog open={open} onClose={() => setOpen(false)} fullWidth maxWidth="sm"><DialogTitle>{editingUser ? 'Edit user login' : 'Create user login'}</DialogTitle><DialogContent dividers><Stack spacing={2} sx={{ pt: 1 }}><TextField label="Username" value={username} onChange={(event) => setUsername(event.target.value)} /><TextField label={editingUser ? 'New password (optional)' : 'Temporary password'} type="password" value={password} onChange={(event) => setPassword(event.target.value)} helperText="At least 8 characters." /><TextField label="Display name" value={displayName} onChange={(event) => setDisplayName(event.target.value)} /><TextField select SelectProps={{ native: true }} label="Link to recipient" value={recipientId} onChange={(event) => setRecipientId(event.target.value)}><option value="">Select recipient</option>{recipients.map((recipient) => <option key={recipient.recipient_id} value={recipient.recipient_id}>{recipient.name} ({recipient.recipient_id})</option>)}</TextField></Stack></DialogContent><DialogActions><Button onClick={() => setOpen(false)}>Cancel</Button><Button variant="contained" onClick={() => void createUser()}>{editingUser ? 'Save changes' : 'Create login'}</Button></DialogActions></Dialog>
       </CardContent>
     </Card>
   )
@@ -718,6 +841,8 @@ function App() {
             <Route path="/distribution" element={<DistributionPage />} />
             <Route path="/recipients" element={<RecipientsPage />} />
             <Route path="/decryption" element={<DecryptionPage />} />
+            <Route path="/notifications" element={<NotificationsPage user={user} />} />
+            <Route path="/events" element={<EventsPage />} />
             <Route path="/watermarks" element={<WatermarkPage />} />
             <Route path="/ledger" element={<LedgerPage />} />
             <Route path="/forensics" element={<ForensicsPage />} />

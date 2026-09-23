@@ -11,12 +11,6 @@ export function LoginPage({ onLogin }: { onLogin: () => void }) {
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
 
-  const fillDemo = (role: 'admin' | 'recipient') => {
-    setUsername(role === 'admin' ? 'admin' : 'alice')
-    setPassword(role === 'admin' ? 'traceseal-admin' : 'traceseal-alice')
-    setError('')
-  }
-
   const login = async (event?: FormEvent<HTMLFormElement>) => {
     event?.preventDefault()
     setError('')
@@ -64,15 +58,8 @@ export function LoginPage({ onLogin }: { onLogin: () => void }) {
                   </Button>
                 </Stack>
               </Box>
-              <Box sx={{ mt: 3 }}>
-                <Typography variant="caption" sx={{ color: whiteTheme.subtext }}>LOCAL DEMO ACCESS</Typography>
-                <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} sx={{ mt: 1 }}>
-                  <Button size="small" variant="outlined" onClick={() => fillDemo('admin')} sx={{ flex: 1, textTransform: 'none' }}>Fill admin</Button>
-                  <Button size="small" variant="outlined" onClick={() => fillDemo('recipient')} sx={{ flex: 1, textTransform: 'none' }}>Fill recipient</Button>
-                </Stack>
-              </Box>
               <Typography variant="caption" sx={{ display: 'block', mt: 3, color: whiteTheme.subtext, textAlign: 'center' }}>
-                Demo accounts are local-only · No external authentication
+                Local authentication · No external authentication
               </Typography>
             </CardContent>
           </Card>

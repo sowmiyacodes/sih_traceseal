@@ -76,6 +76,35 @@ class RecipientService:
             return legacy
 
     @staticmethod
+    def update_recipient(recipient_id: str, name: str, department: str, active: bool | None = None) -> dict:
+        db: Session = SessionLocal()
+        try:
+            row = db.query(Recipient).filter(Recipient.recipient_id == recipient_id).first()
+            if row is None:
+                raise ValueError('Recipient not found')
+            row.name = name.strip()
+            row.department = department.strip()
+            if active is not None:
+                row.active = active
+            db.commit()
+            db.refresh(row)
+            return RecipientService.to_dict(row)
+        finally:
+            db.close()
+
+    @staticmethod
+    def delete_recipient(recipient_id: str) -> None:
+        db: Session = SessionLocal()
+        try:
+            row = db.query(Recipient).filter(Recipient.recipient_id == recipient_id).first()
+            if row is None:
+                raise ValueError('Recipient not found')
+            row.active = False
+            db.commit()
+        finally:
+            db.close()
+
+    @staticmethod
     def to_dict(recipient: Recipient) -> dict:
         try:
             keys = json.loads(recipient.public_key)

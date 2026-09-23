@@ -1,0 +1,157 @@
+{
+  "attribution_confirmed": true,
+  "block": {
+    "block_hash": "d8ce66f95be98853648799705c2d157e03c43847303b64f2a95fb3a2c5e6c1cc",
+    "block_number": 3,
+    "previous_hash": "add75b8bc2f46925d29f62dee6024036e5199cc3822d9e074bb61f08d7ad61ea",
+    "record_hash": "0d4b4cef0f56db51a9ea307f23cc02ef2eff8562a028b3d9347a183169616ef4"
+  },
+  "case_id": "CASE-20260923165104-E5DAEB",
+  "chain_valid": true,
+  "checked_blocks": 5,
+  "created_at": "2026-09-23T16:51:04.408355+00:00",
+  "document": {
+    "document_id": "DOC-53B0721E",
+    "hash": "0899607fa9efc2cdda6e1c3cac350f98863686b8406d050ce2dfa1d1e3d0190b",
+    "name": "ISL (3).pdf"
+  },
+  "document_hash_match": true,
+  "event_id": "EVT-E6742DE5DAEB",
+  "evidence_filename": "ISL (3) (1).pdf",
+  "evidence_graph": {
+    "edges": [
+      {
+        "from": "document",
+        "to": "recipient"
+      },
+      {
+        "from": "recipient",
+        "to": "session"
+      },
+      {
+        "from": "session",
+        "to": "watermark"
+      },
+      {
+        "from": "watermark",
+        "to": "event"
+      },
+      {
+        "from": "event",
+        "to": "signature"
+      },
+      {
+        "from": "signature",
+        "to": "ledger"
+      },
+      {
+        "from": "ledger",
+        "to": "evidence"
+      }
+    ],
+    "nodes": [
+      {
+        "id": "document",
+        "label": "ISL (3).pdf",
+        "status": "PASS",
+        "type": "DOCUMENT"
+      },
+      {
+        "id": "recipient",
+        "label": "Sowmiya",
+        "status": "PASS",
+        "type": "RECIPIENT"
+      },
+      {
+        "id": "session",
+        "label": "SES-9C302633",
+        "status": "PASS",
+        "type": "SESSION"
+      },
+      {
+        "id": "watermark",
+        "label": "WM-52DED818109596C9",
+        "status": "PASS",
+        "type": "WATERMARK"
+      },
+      {
+        "id": "event",
+        "label": "EVT-E6742DE5DAEB",
+        "status": "PASS",
+        "type": "DECRYPTION EVENT"
+      },
+      {
+        "id": "signature",
+        "label": "ML-DSA-65",
+        "status": "PASS",
+        "type": "ML-DSA SIGNATURE"
+      },
+      {
+        "id": "ledger",
+        "label": "Block 3",
+        "status": "PASS",
+        "type": "LEDGER BLOCK"
+      },
+      {
+        "id": "evidence",
+        "label": "ISL (3) (1).pdf",
+        "status": "PASS",
+        "type": "LEAKED FILE"
+      }
+    ]
+  },
+  "evidence_hash_match": true,
+  "evidence_hash_recorded": true,
+  "evidence_sha3_256": "1c374da49e66c34d362e74ed5617ffefe976bc3ab2899434b83fa2ee8e6b6b2a",
+  "failed_block": null,
+  "investigator_id": "USR-JSON-ADMIN",
+  "ledger_match": true,
+  "match": true,
+  "public_key_match": true,
+  "recipient": {
+    "display_name": "Sowmiya",
+    "public_key_fingerprint": "572540b414b2da53c1140995ba07f198f16e8f57761e3c9c19d3d52efee6d123",
+    "recipient_id": "REC-008"
+  },
+  "record_hash_valid": true,
+  "session_id": "SES-9C302633",
+  "signature_valid": true,
+  "timeline": [
+    {
+      "label": "Document registered",
+      "status": "PASS",
+      "timestamp": "2026-09-23T16:45:25.927162"
+    },
+    {
+      "label": "Decryption event created",
+      "status": "PASS",
+      "timestamp": "2026-09-23T16:45:57.819065+00:00"
+    },
+    {
+      "label": "Watermark extracted",
+      "status": "PASS",
+      "timestamp": "2026-09-23T16:45:57.819065+00:00"
+    },
+    {
+      "label": "Ledger verified",
+      "status": "PASS",
+      "timestamp": "2026-09-23T16:45:57.819065+00:00"
+    },
+    {
+      "label": "Forensic analysis completed",
+      "status": "PASS",
+      "timestamp": "2026-09-23T16:51:04.408417+00:00"
+    }
+  ],
+  "timestamp": "2026-09-23T16:45:57.819065+00:00",
+  "verification_status": "CRYPTOGRAPHICALLY VERIFIED FORENSIC MATCH",
+  "watermark": {
+    "algorithm": "DCT",
+    "confidence": 0.99,
+    "detected": true,
+    "page": 1,
+    "watermark_id": "WM-52DED818109596C9"
+  },
+  "watermark_id": "WM-52DED818109596C9",
+  "watermark_valid": true
+}

@@ -1,5 +1,6 @@
 import hashlib
 import os
+import secrets
 import tempfile
 from io import BytesIO
 from types import SimpleNamespace
@@ -19,6 +20,12 @@ from app.services.ledger_service import LedgerService
 from app.services.decryption_service import DecryptionService
 from app.services.recipient_service import RecipientService
 from app.services.document_service import DocumentService
+from app.api.forensics import AnalyzeRequest, analyze
+
+
+@pytest.fixture(autouse=True)
+def isolated_ledger(tmp_path, monkeypatch):
+    monkeypatch.setattr(LedgerService, 'DATA_PATH', tmp_path / 'chain.json')
 from app.main import app
 
 
@@ -206,7 +213,7 @@ def test_document_encrypt_and_decrypt_roundtrip(tmp_path):
 def test_protected_api_requires_local_login():
     client = TestClient(app)
     assert client.get('/api/dashboard').status_code == 401
-    response = client.post('/api/auth/login', json={'username': 'admin', 'password': 'traceseal-admin'})
+    response = client.post('/api/auth/login', json={'username': 'admin', 'password': 'TraceSeal@2026'})
     assert response.status_code == 200
     assert client.get('/api/dashboard', headers={'Authorization': f"Bearer {response.json()['token']}"}).status_code == 200
 
@@ -238,3 +245,43 @@ def test_repeated_distribution_keeps_all_recipient_packages():
     assert len(first) == 1
     assert len(second) == 2
     assert {package['recipient_id'] for package in second} == {alice['recipient_id'], bob['recipient_id']}
+
+
+def test_complete_multi_recipient_forensic_flow(tmp_path, monkeypatch):
+    suffix = os.urandom(4).hex().upper()
+    alice = RecipientService.create_recipient(f'Alice-E2E-{suffix}', 'Legal')
+    bob = RecipientService.create_recipient(f'Bob-E2E-{suffix}', 'Finance')
+    source = tmp_path / 'confidential.png'
+    cv2.imwrite(str(source), np.full((512, 512, 3), 180, dtype=np.uint8))
+    uploaded = DocumentService.upload_document(SimpleNamespace(filename=source.name, file=source.open('rb')))
+    DocumentService.create_recipient_packages(uploaded['document_id'], [alice['recipient_id'], bob['recipient_id']])
+    monkeypatch.setattr(LedgerService, 'DATA_PATH', tmp_path / 'chain.json')
+    LedgerService.create_genesis_block()
+
+    outputs = []
+    for recipient in (alice, bob, alice):
+        package = DocumentService.decrypt_recipient_package(uploaded['document_id'], recipient['recipient_id'])
+        decrypted = DocumentService.decrypt_document_file(uploaded['encrypted_path'], package['key'], uploaded['document_id'])
+        session = DecryptionService.generate_session_id()
+        watermark = WatermarkService.embed_watermark(
+            decrypted['plaintext_path'], recipient['recipient_id'], uploaded['document_id'], session, secrets.token_hex(8), uploaded['original_hash']
+        )
+        event = DecryptionService.create_decryption_event(
+            uploaded['document_id'], recipient['recipient_id'], session, watermark['watermark_id'], uploaded['original_hash'],
+            sha3_256_hex(Path(watermark['output_path']).read_bytes()),
+            (RecipientService.get_private_keys(recipient['recipient_id']) or {}).get('ml_dsa_private'),
+            nonce=watermark['nonce'],
+        )
+        outputs.append((recipient, watermark, event))
+
+    assert len({item[1]['watermark_id'] for item in outputs}) == 3
+    assert len({item[2]['session_id'] for item in outputs}) == 3
+    assert LedgerService.verify_chain()['valid'] is True
+    assert all(DecryptionService.verify_event(item[2]['event_id'])['valid'] for item in outputs)
+
+    alice_result = analyze(AnalyzeRequest(document_path=outputs[0][1]['output_path']), {'user_id': 'USR-ADMIN', 'role': 'ADMIN'})
+    bob_result = analyze(AnalyzeRequest(document_path=outputs[1][1]['output_path']), {'user_id': 'USR-ADMIN', 'role': 'ADMIN'})
+    assert alice_result['attribution_confirmed'] is True, alice_result
+    assert bob_result['attribution_confirmed'] is True, bob_result
+    assert alice_result['recipient']['recipient_id'] == alice['recipient_id']
+    assert bob_result['recipient']['recipient_id'] == bob['recipient_id']

@@ -16,6 +16,7 @@ class DecryptionEvent(Base):
     recipient_id = Column(String(32), nullable=False)
     session_id = Column(String(64), nullable=False)
     watermark_id = Column(String(64), nullable=False)
+    nonce = Column(String(128), nullable=False, default='')
     document_hash = Column(String(128), nullable=False)
     watermarked_hash = Column(String(128), nullable=False)
     timestamp = Column(String(64), nullable=False)

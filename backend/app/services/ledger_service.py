@@ -98,15 +98,15 @@ class LedgerService:
     def verify_chain() -> dict[str, Any]:
         chain = LedgerService._load_chain()
         if not chain:
-            return {'valid': False, 'failed_block': None, 'reason': 'empty_chain'}
+            return {'valid': False, 'checked_blocks': 0, 'failed_block': None, 'reason': 'empty_chain'}
         previous_hash = '0' * 64
         for index, block in enumerate(chain):
             if block.get('block_number') != index:
-                return {'valid': False, 'failed_block': index, 'reason': 'block_number_mismatch'}
+                return {'valid': False, 'checked_blocks': index, 'failed_block': index, 'reason': 'block_number_mismatch'}
             if index == 0 and block.get('previous_hash') != '0' * 64:
-                return {'valid': False, 'failed_block': index, 'reason': 'genesis_previous_hash_mismatch'}
+                return {'valid': False, 'checked_blocks': index, 'failed_block': index, 'reason': 'genesis_previous_hash_mismatch'}
             if index > 0 and block.get('previous_hash') != previous_hash:
-                return {'valid': False, 'failed_block': index, 'reason': 'previous_hash_mismatch'}
+                return {'valid': False, 'checked_blocks': index, 'failed_block': index, 'reason': 'previous_hash_mismatch'}
             transactions = block.get('transactions', [])
             if len(transactions) == 0:
                 expected_root = '0' * 64
@@ -115,14 +115,14 @@ class LedgerService:
             else:
                 expected_root = sha3_256_hex(json.dumps(transactions, sort_keys=True, separators=(",", ":")))
             if block.get('transaction_root') != expected_root:
-                return {'valid': False, 'failed_block': index, 'reason': 'transaction_root_mismatch'}
+                return {'valid': False, 'checked_blocks': index, 'failed_block': index, 'reason': 'transaction_root_mismatch'}
             expected = sha3_256_hex(
                 f"{block['block_number']}|{block['timestamp']}|{block['previous_hash']}|{block['transaction_root']}"
             )
             if block.get('block_hash') != expected:
-                return {'valid': False, 'failed_block': index, 'reason': 'block_hash_mismatch'}
+                return {'valid': False, 'checked_blocks': index, 'failed_block': index, 'reason': 'block_hash_mismatch'}
             previous_hash = block.get('block_hash', '')
-        return {'valid': True, 'failed_block': None, 'reason': None}
+        return {'valid': True, 'checked_blocks': len(chain), 'failed_block': None, 'reason': None}
 
     @staticmethod
     def _detect_tampering(block: dict[str, Any], chain: list[dict[str, Any]]) -> bool:
@@ -151,6 +151,20 @@ class LedgerService:
                 if tx.get('event_id') == event_id:
                     matches.append(tx)
         return matches
+
+    @staticmethod
+    def find_block_by_event_id(event_id: str) -> dict[str, Any] | None:
+        for block in LedgerService._load_chain():
+            if any(tx.get('event_id') == event_id for tx in block.get('transactions', [])):
+                return block
+        return None
+
+    @staticmethod
+    def find_block_by_watermark(watermark_id: str) -> dict[str, Any] | None:
+        for block in LedgerService._load_chain():
+            if any(tx.get('watermark_id') == watermark_id for tx in block.get('transactions', [])):
+                return block
+        return None
 
     @staticmethod
     def get_transaction(tx_id: str) -> dict[str, Any] | None:

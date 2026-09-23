@@ -5,13 +5,25 @@ import json
 import os
 from typing import Any, Tuple
 
-try:
-    import oqs
-except Exception:  # pragma: no cover - fallback for environments without liboqs
-    oqs = None
+oqs = None
+if os.environ.get('TRACESEAL_ENABLE_LIBOQS', '').lower() in {'1', 'true', 'yes'}:
+    try:
+        import oqs as _oqs
+        oqs = _oqs
+    except Exception:  # pragma: no cover - native backend is optional and local
+        oqs = None
 
 
 FALLBACK_KEM_KEYS: dict[str, str] = {}
+
+
+def is_real_pqc_available() -> bool:
+    return oqs is not None
+
+
+def require_real_pqc() -> None:
+    if os.environ.get('TRACESEAL_REQUIRE_REAL_PQC', '').lower() in {'1', 'true', 'yes'} and oqs is None:
+        raise RuntimeError('liboqs is required. Install the local liboqs-python backend before enabling production PQC mode.')
 
 
 def register_fallback_kem_keypair(private_key: str, public_key: str) -> None:
@@ -26,6 +38,7 @@ def _safe_json(value: Any) -> str:
 
 
 def generate_ml_dsa_keypair() -> Tuple[str, str]:
+    require_real_pqc()
     if oqs is not None:
         keypair = oqs.KeyPair("ML-DSA-65")
         return keypair.private_key.hex(), keypair.public_key.hex()
@@ -35,6 +48,7 @@ def generate_ml_dsa_keypair() -> Tuple[str, str]:
 
 
 def sign_event(private_key: str, message: bytes) -> str:
+    require_real_pqc()
     if oqs is not None:
         signing_key = oqs.SignatureSecretKey.from_bytes(bytes.fromhex(private_key), "ML-DSA-65")
         return signing_key.sign(message).hex()
@@ -43,6 +57,7 @@ def sign_event(private_key: str, message: bytes) -> str:
 
 
 def verify_signature(public_key: str, message: bytes, signature: str) -> bool:
+    require_real_pqc()
     if oqs is not None:
         verifying_key = oqs.SignaturePublicKey.from_bytes(bytes.fromhex(public_key), "ML-DSA-65")
         try:
@@ -55,6 +70,7 @@ def verify_signature(public_key: str, message: bytes, signature: str) -> bool:
 
 
 def generate_ml_kem_keypair() -> Tuple[str, str]:
+    require_real_pqc()
     if oqs is not None:
         keypair = oqs.KeyPair("ML-KEM-768")
         return keypair.private_key.hex(), keypair.public_key.hex()
@@ -66,6 +82,7 @@ def generate_ml_kem_keypair() -> Tuple[str, str]:
 
 
 def encapsulate(public_key: str) -> Tuple[str, bytes]:
+    require_real_pqc()
     if oqs is not None:
         pk = oqs.EncapsulationPublicKey.from_bytes(bytes.fromhex(public_key), "ML-KEM-768")
         ciphertext, shared_secret = pk.encapsulate()
@@ -80,6 +97,7 @@ def encapsulate(public_key: str) -> Tuple[str, bytes]:
 
 
 def decapsulate(private_key: str, ciphertext: str) -> bytes:
+    require_real_pqc()
     if oqs is not None:
         sk = oqs.EncapsulationSecretKey.from_bytes(bytes.fromhex(private_key), "ML-KEM-768")
         return sk.decapsulate(bytes.fromhex(ciphertext))

@@ -14,6 +14,7 @@ from app.services.watermark_service import WatermarkService
 from app.services.recipient_service import RecipientService
 from app.crypto.hashing import sha3_256_hex
 from app.api.auth import require_roles, current_user
+from app.services.audit_service import AuditService
 
 router = APIRouter(tags=['documents'])
 
@@ -27,11 +28,20 @@ class DistributionRequest(BaseModel):
     recipient_ids: list[str]
 
 
+class DocumentUpdateRequest(BaseModel):
+    original_filename: str
+
+
 @router.post('/documents/upload')
 async def upload_document(file: UploadFile = File(...), _: dict = Depends(require_roles('ADMIN', 'SENDER'))):
     if file is None or not file.filename:
         raise HTTPException(status_code=400, detail='No file uploaded.')
-    return DocumentService.upload_document(file)
+    try:
+        result = DocumentService.upload_document(file)
+        AuditService.record('DOCUMENT_UPLOAD', actor_id=_['user_id'], subject_id=result['document_id'])
+        return result
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @router.post('/documents/decrypt')
@@ -68,6 +78,7 @@ def decrypt_document(payload: DecryptRequest, user: dict = Depends(current_user)
             watermarked_hash=sha3_256_hex(Path(watermark['output_path']).read_bytes()),
             private_key=(RecipientService.get_private_keys(recipient_id) or {}).get('ml_dsa_private'),
         )
+        AuditService.record('DECRYPTION', actor_id=user['user_id'], subject_id=event['event_id'], details={'document_id': document_id, 'watermark_id': watermark['watermark_id']})
         return {
             "document_id": document_id,
             "encrypted_path": result["encrypted_path"],
@@ -92,6 +103,7 @@ def decrypt_document(payload: DecryptRequest, user: dict = Depends(current_user)
 def distribute_document(document_id: str, payload: DistributionRequest, _: dict = Depends(require_roles('ADMIN', 'SENDER'))):
     try:
         packages = DocumentService.create_recipient_packages(document_id, payload.recipient_ids)
+        AuditService.record('DOCUMENT_ASSIGNMENT', actor_id=_['user_id'], subject_id=document_id, details={'recipients': payload.recipient_ids})
         return {'document_id': document_id, 'packages': packages, 'ciphertext_count': 1}
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -126,13 +138,34 @@ def list_documents(user: dict = Depends(current_user)):
 
 
 @router.get('/documents/{document_id}')
-def get_document(document_id: str, _: dict = Depends(current_user)):
+def get_document(document_id: str, user: dict = Depends(current_user)):
     doc = DocumentService.get_document(document_id)
     if doc is None:
         raise HTTPException(status_code=404, detail='Document not found')
+    if user['role'] == 'RECIPIENT':
+        assigned = DocumentService.list_recipient_packages(document_id=document_id, recipient_id=user.get('recipient_id'))
+        if not assigned:
+            raise HTTPException(status_code=403, detail='Document is not assigned to this recipient')
     return doc
 
 
 @router.get('/documents/{document_id}/key')
 def get_document_key(document_id: str, _: dict = Depends(require_roles('ADMIN', 'SENDER'))):
     raise HTTPException(status_code=410, detail='Document keys are server-side and never returned by the API')
+
+
+@router.delete('/documents/{document_id}')
+def delete_document(document_id: str, _: dict = Depends(require_roles('ADMIN'))):
+    try:
+        DocumentService.delete_document(document_id)
+        return {'document_id': document_id, 'deleted': True}
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.patch('/documents/{document_id}')
+def update_document(document_id: str, payload: DocumentUpdateRequest, _: dict = Depends(require_roles('ADMIN'))):
+    try:
+        return DocumentService.update_document(document_id, payload.original_filename)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc

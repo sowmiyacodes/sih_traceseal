@@ -38,8 +38,8 @@ The design preserves the Phase 1 crypto abstractions, while adding a working loc
 
 - SHA3-256 for hashes and ledger integrity
 - AES-256-GCM for document encryption/decryption
-- ML-KEM-768 abstraction for key establishment where used
-- ML-DSA-65 abstraction for signature verification and event signing
+- ML-KEM-768 and ML-DSA-65 through `liboqs` when that local backend is installed
+- A clearly labeled development compatibility backend is retained for environments where `liboqs` cannot be installed; it must not be presented as production PQC
 
 Security rules followed by the design:
 
@@ -152,19 +152,23 @@ Then open:
 
 ## Demo Flow
 
-The backend seeds two local demo logins on startup. These accounts are for the offline demonstration only:
+The backend creates no accounts by default. For a local demonstration, set the opt-in seed variables described in [Hardening and Reset](#hardening-and-reset), then use the credentials you supplied through the environment.
 
-- Admin: `admin` / `traceseal-admin`
-- Recipient: `alice` / `traceseal-alice` (linked to `REC-001`)
+### Temporary JSON login mode
+
+The current local `.env` enables JSON authentication so login works without database user rows:
+
+- Admin: `admin` / `TraceSeal@2026`
+- Recipient: `recipient` / `Recipient@2026`
+
+Credentials are stored as scrypt hashes in `backend/config/auth_users.json`. This mode is intended for the current local demonstration. Document, recipient, key, watermark, event, and ledger operations still use their existing local storage services.
 
 1. Sign in as admin and create/upload a document.
-2. Assign the document to the seeded recipient or another active recipient.
-3. Sign out and sign in as Alice.
+2. Assign the document to the created recipient.
+3. Sign out and sign in as that recipient.
 4. Decrypt and download the protected copy. This creates a session watermark, signed event, and ledger record.
 5. Sign in as an investigator-capable account and upload the leaked copy in Forensic Investigation.
 6. Confirm the watermark, signature, ledger chain, and recipient attribution.
-
-The demo recipient username and password can be overridden for local setup with `TRACESEAL_DEMO_RECIPIENT_USERNAME` and `TRACESEAL_DEMO_RECIPIENT_PASSWORD`.
 
 ## Tests
 
@@ -213,6 +217,35 @@ The SQLite database is created automatically on startup via the model initializa
 
 No migration framework is required for this local prototype, but table creation is handled automatically on app boot.
 
+### Production PQC mode
+
+Install a compatible local `liboqs-python`/liboqs build for real ML-KEM and ML-DSA operations. Set `TRACESEAL_REQUIRE_REAL_PQC=1` to make startup/key generation fail closed when liboqs is unavailable. Without that flag, the dashboard reports `DEVELOPMENT FALLBACK (liboqs unavailable)` and the local fallback is intended only for development tests.
+
 ## Limitations
 
 This is still a local prototype and not a distributed forensic platform. It is designed to run entirely offline with deterministic local verification and strong traceability for demonstration and validation work.
+
+## Hardening and Reset
+
+The development reset removes the SQLite database, local encrypted/decrypted/watermarked/evidence/key storage, forensic cases, and the JSON ledger, then recreates only the database schema and a valid genesis ledger on the next ledger access:
+
+```powershell
+cd D:\sih_traceseal\backend
+python scripts\reset_demo_data.py
+```
+
+Reset creates no users. Demo accounts are opt-in and require all of the following environment variables:
+
+```powershell
+$env:TRACESEAL_SEED_DEMO="1"
+$env:TRACESEAL_DEMO_ADMIN_USERNAME="admin"
+$env:TRACESEAL_DEMO_ADMIN_PASSWORD="change-this-locally"
+$env:TRACESEAL_DEMO_RECIPIENT_USERNAME="recipient"
+$env:TRACESEAL_DEMO_RECIPIENT_PASSWORD="change-this-locally"
+```
+
+Important runtime additions include local audit events, 50 MB upload limits, restricted CORS, recipient assignment checks on direct document access, dynamic subsystem status at `GET /api/system/status`, and recent audit data at `GET /api/audit/events`.
+
+The forensic response includes an evidence graph and timeline generated from the verified document, recipient, session, watermark, event, signature, ledger block, and leaked-file evidence. A disposable attack simulator is available only when `TRACESEAL_ENABLE_SIMULATION=1`; it mutates a temporary uploaded copy and runs the same forensic verifier rather than returning a scripted failure.
+
+The `oqs` package is never allowed to auto-download or build dependencies. Set `TRACESEAL_ENABLE_LIBOQS=1` only when a local liboqs shared library is already installed. Set `TRACESEAL_REQUIRE_REAL_PQC=1` to fail closed when native ML-KEM/ML-DSA is unavailable.

@@ -22,6 +22,8 @@ from app.services.recipient_service import RecipientService
 
 class DocumentService:
     STORAGE_ROOT = Path(__file__).resolve().parents[2] / "storage"
+    MAX_UPLOAD_BYTES = 50 * 1024 * 1024
+    ALLOWED_UPLOAD_EXTENSIONS = {'.pdf', '.png', '.jpg', '.jpeg', '.txt', '.docx'}
 
     @staticmethod
     def _normalize_name(filename: str) -> str:
@@ -100,12 +102,16 @@ class DocumentService:
     def upload_document(file_obj) -> dict:
         original_name = file_obj.filename or "upload.bin"
         safe_name = DocumentService._normalize_name(original_name)
+        if Path(safe_name).suffix.lower() not in DocumentService.ALLOWED_UPLOAD_EXTENSIONS:
+            raise ValueError('Unsupported file type')
         doc_id = f"DOC-{uuid4().hex[:8].upper()}"
         encrypted_dir = DocumentService.STORAGE_ROOT / "encrypted"
         keys_dir = DocumentService.STORAGE_ROOT / "keys"
         encrypted_dir.mkdir(parents=True, exist_ok=True)
         keys_dir.mkdir(parents=True, exist_ok=True)
         plaintext = file_obj.file.read()
+        if len(plaintext) > DocumentService.MAX_UPLOAD_BYTES:
+            raise ValueError('File exceeds the 50 MB upload limit')
         key = os.urandom(32)
         nonce = os.urandom(12)
         ciphertext = AESGCM(key).encrypt(nonce, plaintext, None)
@@ -310,5 +316,36 @@ class DocumentService:
             if row is not None:
                 row.watermarked_path = path
                 db.commit()
+        finally:
+            db.close()
+
+    @staticmethod
+    def delete_document(document_id: str) -> None:
+        db: Session = SessionLocal()
+        try:
+            row = db.query(Document).filter(Document.document_id == document_id).first()
+            if row is None:
+                raise ValueError('Document not found')
+            paths = [row.encrypted_path, row.decrypted_path, row.watermarked_path]
+            db.delete(row)
+            db.commit()
+        finally:
+            db.close()
+        for raw_path in paths:
+            if raw_path:
+                Path(raw_path).unlink(missing_ok=True)
+
+    @staticmethod
+    def update_document(document_id: str, original_filename: str) -> dict:
+        safe_name = DocumentService._normalize_name(original_filename)
+        db: Session = SessionLocal()
+        try:
+            row = db.query(Document).filter(Document.document_id == document_id).first()
+            if row is None:
+                raise ValueError('Document not found')
+            row.original_filename = safe_name
+            db.commit()
+            db.refresh(row)
+            return DocumentService.get_document(document_id)
         finally:
             db.close()

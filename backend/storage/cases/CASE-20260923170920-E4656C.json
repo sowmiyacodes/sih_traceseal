@@ -1,0 +1,157 @@
+{
+  "attribution_confirmed": true,
+  "block": {
+    "block_hash": "7e4e0af011c021337299ba6a37ff398343b02cb02419602f2d761e20317be513",
+    "block_number": 5,
+    "previous_hash": "ab6ec7d1ee089225705c597a8180b566ef20008e275ce649bd28e0a8342b270f",
+    "record_hash": "8b4bd52b2525317089af719916684dfcb3d8ca30f9118582d8148956de64e8f9"
+  },
+  "case_id": "CASE-20260923170920-E4656C",
+  "chain_valid": true,
+  "checked_blocks": 6,
+  "created_at": "2026-09-23T17:09:20.708040+00:00",
+  "document": {
+    "document_id": "DOC-9C2C4FC7",
+    "hash": "6f2c1da875c94d7c7783def2d8f831f6f65772d6476a4be005c84fed2dae9a70",
+    "name": "a.pdf"
+  },
+  "document_hash_match": true,
+  "event_id": "EVT-3C010CE4656C",
+  "evidence_filename": "a (1).pdf",
+  "evidence_graph": {
+    "edges": [
+      {
+        "from": "document",
+        "to": "recipient"
+      },
+      {
+        "from": "recipient",
+        "to": "session"
+      },
+      {
+        "from": "session",
+        "to": "watermark"
+      },
+      {
+        "from": "watermark",
+        "to": "event"
+      },
+      {
+        "from": "event",
+        "to": "signature"
+      },
+      {
+        "from": "signature",
+        "to": "ledger"
+      },
+      {
+        "from": "ledger",
+        "to": "evidence"
+      }
+    ],
+    "nodes": [
+      {
+        "id": "document",
+        "label": "a.pdf",
+        "status": "PASS",
+        "type": "DOCUMENT"
+      },
+      {
+        "id": "recipient",
+        "label": "Aishwarya",
+        "status": "PASS",
+        "type": "RECIPIENT"
+      },
+      {
+        "id": "session",
+        "label": "SES-5500488F",
+        "status": "PASS",
+        "type": "SESSION"
+      },
+      {
+        "id": "watermark",
+        "label": "WM-95AD4D1A50E8B56B",
+        "status": "PASS",
+        "type": "WATERMARK"
+      },
+      {
+        "id": "event",
+        "label": "EVT-3C010CE4656C",
+        "status": "PASS",
+        "type": "DECRYPTION EVENT"
+      },
+      {
+        "id": "signature",
+        "label": "ML-DSA-65",
+        "status": "PASS",
+        "type": "ML-DSA SIGNATURE"
+      },
+      {
+        "id": "ledger",
+        "label": "Block 5",
+        "status": "PASS",
+        "type": "LEDGER BLOCK"
+      },
+      {
+        "id": "evidence",
+        "label": "a (1).pdf",
+        "status": "PASS",
+        "type": "LEAKED FILE"
+      }
+    ]
+  },
+  "evidence_hash_match": true,
+  "evidence_hash_recorded": true,
+  "evidence_sha3_256": "320ce18b79486c89bba30d0c695dfe45fed23b663425eaaece6f121b57eb2112",
+  "failed_block": null,
+  "investigator_id": "USR-JSON-ADMIN",
+  "ledger_match": true,
+  "match": true,
+  "public_key_match": true,
+  "recipient": {
+    "display_name": "Aishwarya",
+    "public_key_fingerprint": "53bb82eba16eb0be2d4db3ac8ad36620a62db0a9eb8892c9970ee818eb87c73f",
+    "recipient_id": "REC-007"
+  },
+  "record_hash_valid": true,
+  "session_id": "SES-5500488F",
+  "signature_valid": true,
+  "timeline": [
+    {
+      "label": "Document registered",
+      "status": "PASS",
+      "timestamp": "2026-09-23T17:08:04.971153"
+    },
+    {
+      "label": "Decryption event created",
+      "status": "PASS",
+      "timestamp": "2026-09-23T17:08:45.891685+00:00"
+    },
+    {
+      "label": "Watermark extracted",
+      "status": "PASS",
+      "timestamp": "2026-09-23T17:08:45.891685+00:00"
+    },
+    {
+      "label": "Ledger verified",
+      "status": "PASS",
+      "timestamp": "2026-09-23T17:08:45.891685+00:00"
+    },
+    {
+      "label": "Forensic analysis completed",
+      "status": "PASS",
+      "timestamp": "2026-09-23T17:09:20.708092+00:00"
+    }
+  ],
+  "timestamp": "2026-09-23T17:08:45.891685+00:00",
+  "verification_status": "CRYPTOGRAPHICALLY VERIFIED FORENSIC MATCH",
+  "watermark": {
+    "algorithm": "DCT",
+    "confidence": 0.99,
+    "detected": true,
+    "page": 1,
+    "watermark_id": "WM-95AD4D1A50E8B56B"
+  },
+  "watermark_id": "WM-95AD4D1A50E8B56B",
+  "watermark_valid": true
+}
