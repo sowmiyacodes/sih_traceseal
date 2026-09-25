@@ -12,6 +12,8 @@ class Document(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     document_id = Column(String(32), unique=True, index=True, nullable=False)
+    title = Column(String(255), nullable=False, default="Untitled document")
+    content = Column(Text, nullable=False, default="")
     original_filename = Column(String(255), nullable=False)
     encrypted_path = Column(String(512), nullable=True)
     decrypted_path = Column(String(512), nullable=True)

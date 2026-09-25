@@ -37,7 +37,7 @@ def notifications(user: dict = Depends(current_user)):
                 'id': f'event-{event.event_id}',
                 'type': 'DOWNLOAD',
                 'title': 'Protected copy created',
-                'message': f'Your watermarked copy of {document.original_filename} was created.',
+                'message': f'Your protected copy of {document.original_filename} is ready.',
                 'document_id': document.document_id,
                 'event_id': event.event_id,
                 'timestamp': event.created_at.isoformat() if event.created_at else event.timestamp,

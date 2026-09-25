@@ -109,6 +109,24 @@ a {
   text-decoration: none;
 }
 
+.trace-document-editor,
+.trace-document-preview {
+  direction: ltr !important;
+  text-align: left !important;
+  unicode-bidi: plaintext !important;
+  writing-mode: horizontal-tb !important;
+}
+
+.trace-document-editor {
+  user-select: text !important;
+  -webkit-user-select: text !important;
+}
+
+.trace-document-preview {
+  user-select: none !important;
+  -webkit-user-select: none !important;
+}
+
 * {
   box-sizing: border-box;
 }

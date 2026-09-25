@@ -23,9 +23,6 @@ from app.services.document_service import DocumentService
 def reset_database() -> None:
     Base.metadata.drop_all(bind=engine)
     Base.metadata.create_all(bind=engine)
-    if os.environ.get('TRACESEAL_SEED_DEMO', '').lower() in {'1', 'true', 'yes'}:
-        AuthService.seed_admin()
-        AuthService.seed_demo_recipient()
 
 
 def main() -> None:

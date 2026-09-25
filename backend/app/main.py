@@ -27,9 +27,6 @@ load_dotenv(dotenv_path=Path(__file__).resolve().parents[1] / ".env")
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     init_db()
-    if os.environ.get('TRACESEAL_SEED_DEMO', '').lower() in {'1', 'true', 'yes'}:
-        AuthService.seed_admin()
-        AuthService.seed_demo_recipient()
     yield
 
 
@@ -55,6 +52,11 @@ app.include_router(forensics_router, prefix="/api")
 @app.get("/api/health")
 def health_check():
     return {"status": "ok", "service": "forensic-document-system"}
+
+
+@app.get('/api/security/status')
+def security_status(_: dict = Depends(current_user)):
+    return system_status(_)
 
 
 @app.get('/api/system/status')

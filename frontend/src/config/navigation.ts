@@ -24,6 +24,7 @@ const investigationRoles: UserRole[] = ['ADMIN', 'FORENSIC_INVESTIGATOR']
 
 export const navigationItems: NavigationItem[] = [
   { label: 'Dashboard', path: '/', icon: LayoutDashboard, roles: allRoles },
+  { label: 'Document Workspace', path: '/documents/workspace', icon: FileText, roles: operationalRoles },
   { label: 'Documents', path: '/documents', icon: FileText, roles: operationalRoles },
   { label: 'Distribution', path: '/distribution', icon: FileText, roles: operationalRoles },
   { label: 'Recipients', path: '/recipients', icon: UserRound, roles: operationalRoles },

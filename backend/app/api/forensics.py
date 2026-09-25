@@ -33,6 +33,11 @@ class VerifyLedgerRequest(BaseModel):
     event_id: str | None = None
 
 
+@router.post('/trace/analyze')
+def trace_analyze(payload: AnalyzeRequest, user: dict = Depends(require_roles('ADMIN', 'FORENSIC_INVESTIGATOR'))):
+    return analyze(payload, user)
+
+
 @router.post('/forensics/analyze')
 def analyze(payload: AnalyzeRequest, user: dict = Depends(require_roles('ADMIN', 'FORENSIC_INVESTIGATOR'))):
     evidence_path = Path(payload.document_path)
@@ -172,6 +177,14 @@ def analyze(payload: AnalyzeRequest, user: dict = Depends(require_roles('ADMIN',
     AuditService.record('FORENSIC_ANALYSIS', actor_id=user['user_id'], subject_id=event_id, outcome='SUCCESS' if attribution_confirmed else 'FAILURE')
     ForensicCaseService.create_case(case)
     return case
+
+
+@router.get('/trace/{trace_id}')
+def lookup_trace(trace_id: str, _: dict = Depends(require_roles('ADMIN', 'FORENSIC_INVESTIGATOR'))):
+    package = DocumentService.get_distribution_by_trace_id(trace_id)
+    if package is None:
+        raise HTTPException(status_code=404, detail='Trace ID not found')
+    return {'trace_id': trace_id, 'distribution': package}
 
 
 @router.post('/forensics/analyze-upload')

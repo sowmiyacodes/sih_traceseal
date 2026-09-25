@@ -2,6 +2,7 @@ import hashlib
 import os
 import secrets
 import tempfile
+from datetime import datetime, timedelta, timezone
 from io import BytesIO
 from types import SimpleNamespace
 from pathlib import Path
@@ -216,6 +217,72 @@ def test_protected_api_requires_local_login():
     response = client.post('/api/auth/login', json={'username': 'admin', 'password': 'TraceSeal@2026'})
     assert response.status_code == 200
     assert client.get('/api/dashboard', headers={'Authorization': f"Bearer {response.json()['token']}"}).status_code == 200
+
+
+def test_trace_identity_generation_is_unique_and_permission_ready(tmp_path):
+    source = tmp_path / 'trace_sample.txt'
+    source.write_text('trace sample', encoding='utf-8')
+    document = DocumentService.upload_document(SimpleNamespace(filename='trace_sample.txt', file=BytesIO(b'trace sample')))
+    recipient_a = RecipientService.create_recipient('Bob Trace', 'Operations')
+    recipient_b = RecipientService.create_recipient('Alice Trace', 'Operations')
+
+    packages = DocumentService.create_recipient_packages(document['document_id'], [recipient_a['recipient_id'], recipient_b['recipient_id']])
+    trace_ids = [package['trace_id'] for package in packages]
+
+    assert all(trace.startswith('TS-') for trace in trace_ids)
+    assert len(set(trace_ids)) == len(trace_ids)
+    assert DocumentService.can_access_package(document['document_id'], recipient_a['recipient_id'], 'VIEW')['allowed'] is True
+    assert DocumentService.can_access_package(document['document_id'], recipient_a['recipient_id'], 'PRINT')['allowed'] is False
+
+
+def test_distribution_permissions_and_download_limit_are_enforced(tmp_path):
+    source = tmp_path / 'permissioned.txt'
+    source.write_text('restricted access sample', encoding='utf-8')
+    document = DocumentService.upload_document(SimpleNamespace(filename='permissioned.txt', file=BytesIO(b'restricted access sample')))
+    recipient = RecipientService.create_recipient('Permissioned User', 'Compliance')
+
+    DocumentService.create_recipient_packages(
+        document['document_id'],
+        [recipient['recipient_id']],
+        permissions={'view': True, 'download': False, 'print': False, 'edit': False, 'reshare': False},
+    )
+    assert DocumentService.can_access_package(document['document_id'], recipient['recipient_id'], 'VIEW')['allowed'] is True
+    assert DocumentService.can_access_package(document['document_id'], recipient['recipient_id'], 'DOWNLOAD')['allowed'] is False
+
+    recipient_two = RecipientService.create_recipient('Download Limited User', 'Compliance')
+    DocumentService.create_recipient_packages(
+        document['document_id'],
+        [recipient_two['recipient_id']],
+        permissions={'view': True, 'download': True, 'print': False, 'edit': False, 'reshare': False},
+        max_downloads=1,
+    )
+    assert DocumentService.can_access_package(document['document_id'], recipient_two['recipient_id'], 'DOWNLOAD')['allowed'] is True
+    assert DocumentService.can_access_package(document['document_id'], recipient_two['recipient_id'], 'DOWNLOAD')['allowed'] is False
+
+    expiry = (datetime.now(timezone.utc) - timedelta(minutes=5)).isoformat()
+    recipient_three = RecipientService.create_recipient('Expired User', 'Compliance')
+    DocumentService.create_recipient_packages(
+        document['document_id'],
+        [recipient_three['recipient_id']],
+        permissions={'view': True, 'download': True, 'print': False, 'edit': False, 'reshare': False},
+        expiry_timestamp=expiry,
+    )
+    assert DocumentService.can_access_package(document['document_id'], recipient_three['recipient_id'], 'VIEW')['allowed'] is False
+
+
+def test_revocation_blocks_access_and_updates_audit_state(tmp_path):
+    source = tmp_path / 'revoke_sample.txt'
+    source.write_text('revoke sample', encoding='utf-8')
+    document = DocumentService.upload_document(SimpleNamespace(filename='revoke_sample.txt', file=BytesIO(b'revoke sample')))
+    recipient = RecipientService.create_recipient('Charlie Revoke', 'Security')
+
+    package = DocumentService.create_recipient_packages(document['document_id'], [recipient['recipient_id']])[0]
+    assert DocumentService.can_access_package(document['document_id'], recipient['recipient_id'], 'DOWNLOAD')['allowed'] is True
+
+    updated = DocumentService.revoke_distribution(document['document_id'], recipient['recipient_id'], 'Policy review requested')
+    assert updated['status'] == 'REVOKED'
+    assert DocumentService.can_access_package(document['document_id'], recipient['recipient_id'], 'DOWNLOAD')['allowed'] is False
+    assert DocumentService.get_distribution(document['document_id'], recipient['recipient_id'])['revocation_reason'] == 'Policy review requested'
 
 
 def test_one_ciphertext_supports_multiple_isolated_packages():

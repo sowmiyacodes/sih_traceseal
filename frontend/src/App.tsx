@@ -1,6 +1,7 @@
-import { useEffect, useState } from 'react'
-import { BrowserRouter, Routes, Route } from 'react-router-dom'
+import { useEffect, useRef, useState } from 'react'
+import { BrowserRouter, Routes, Route, useNavigate } from 'react-router-dom'
 import axios from 'axios'
+import { jsPDF } from 'jspdf'
 import { API_BASE } from './config/api'
 import { whiteTheme } from './config/theme'
 import type { AuthUser } from './types/auth'
@@ -14,6 +15,7 @@ import {
   Button,
   Card,
   CardContent,
+  Checkbox,
   Chip,
   Container,
   Autocomplete,
@@ -21,6 +23,10 @@ import {
   DialogActions,
   DialogContent,
   DialogTitle,
+  FormControlLabel,
+  FormGroup,
+  MenuItem,
+  Select,
   Table,
   TableBody,
   TableCell,
@@ -131,13 +137,238 @@ function Dashboard({ user }: { user: AuthUser }) {
   )
 }
 
+function DocumentWorkspacePage() {
+  const navigate = useNavigate()
+  const editorRef = useRef<HTMLDivElement | null>(null)
+  const [documentId, setDocumentId] = useState<string | null>(null)
+  const [title, setTitle] = useState('Untitled document')
+  const [content, setContent] = useState('')
+  const [previewMode, setPreviewMode] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [status, setStatus] = useState('Draft is ready')
+  const [isDirty, setIsDirty] = useState(false)
+  const [loading, setLoading] = useState(false)
+
+  const sanitizeDocumentText = (value: string) => {
+    const stripped = value.replace(/[\u200E\u200F\u202A-\u202E\u2066-\u2069]/g, '')
+    return stripped
+      .replace(/dir\s*=\s*['\"]?(rtl|auto|ltr)['\"]?/gi, 'dir="ltr"')
+      .replace(/style=\s*['\"][^'\"]*direction\s*:\s*rtl[^'\"]*['\"]/gi, 'style="direction: ltr; text-align: left;"')
+      .replace(/direction\s*:\s*rtl/gi, 'direction: ltr')
+      .replace(/unicode-bidi\s*:\s*[^;]+;?/gi, 'unicode-bidi: plaintext;')
+  }
+
+  const enforceLtrEditor = (element: HTMLDivElement | null) => {
+    if (!element) return
+    element.setAttribute('dir', 'ltr')
+    element.style.direction = 'ltr'
+    element.style.textAlign = 'left'
+    element.style.unicodeBidi = 'plaintext'
+    const next = sanitizeDocumentText(element.innerHTML)
+    if (next !== element.innerHTML) {
+      element.innerHTML = next
+    }
+  }
+
+  const generateDocumentPdf = async (uploadImmediately = false) => {
+    const titleText = (title || 'Untitled document').trim() || 'Untitled document'
+    const text = (new DOMParser().parseFromString(content || '<p></p>', 'text/html').body.textContent ?? '').replace(/\s+/g, ' ').trim() || titleText
+    const pdf = new jsPDF({ unit: 'pt', format: 'a4' })
+    const pageWidth = pdf.internal.pageSize.getWidth()
+    const margin = 48
+    const contentWidth = pageWidth - margin * 2
+
+    pdf.setFontSize(18)
+    pdf.text(titleText, margin, 60)
+    pdf.setFontSize(11)
+
+    const lines = pdf.splitTextToSize(text, contentWidth)
+    let cursor = 92
+    lines.forEach((line: string) => {
+      if (cursor > 760) {
+        pdf.addPage()
+        cursor = 52
+      }
+      pdf.text(line, margin, cursor)
+      cursor += 18
+    })
+
+    if (uploadImmediately) {
+      const blob = pdf.output('blob')
+      const file = new File([blob], `${titleText.replace(/[^a-zA-Z0-9-_]+/g, '-').toLowerCase() || 'document'}.pdf`, { type: 'application/pdf' })
+      const form = new FormData()
+      form.append('file', file)
+      setSaving(true)
+      try {
+        const { data } = await axios.post(`${API_BASE}/documents/upload`, form, { headers: { 'Content-Type': 'multipart/form-data' } })
+        setStatus(`PDF exported and uploaded as ${data.original_filename} (${data.document_id})`)
+      } catch (err: unknown) {
+        setStatus(axios.isAxiosError(err) ? String(err.response?.data?.detail ?? 'PDF upload failed') : 'PDF upload failed')
+      } finally {
+        setSaving(false)
+      }
+      return
+    }
+
+    pdf.save(`${titleText.replace(/[^a-zA-Z0-9-_]+/g, '-').toLowerCase() || 'document'}.pdf`)
+    setStatus('PDF export ready')
+  }
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    const id = params.get('id')
+    if (!id) return
+    const load = async () => {
+      setLoading(true)
+      try {
+        const { data } = await axios.get(`${API_BASE}/documents/${id}`)
+        setDocumentId(data.document_id)
+        setTitle(data.title ?? 'Untitled document')
+        setContent(data.content || '')
+        setStatus('Loaded document from TraceSeal')
+      } catch {
+        setStatus('Unable to load that document.')
+      } finally {
+        setLoading(false)
+      }
+    }
+    void load()
+  }, [])
+
+  useEffect(() => {
+    if (!editorRef.current) return
+    if (!previewMode) {
+      editorRef.current.innerHTML = content
+      enforceLtrEditor(editorRef.current)
+    }
+  }, [content, previewMode])
+
+  useEffect(() => {
+    const beforeUnload = (event: BeforeUnloadEvent) => {
+      if (!isDirty) return
+      event.preventDefault()
+      event.returnValue = ''
+    }
+    window.addEventListener('beforeunload', beforeUnload)
+    return () => window.removeEventListener('beforeunload', beforeUnload)
+  }, [isDirty])
+
+  const applyMarkup = (command: string, value?: string) => {
+    if (!editorRef.current) return
+    editorRef.current.focus()
+    document.execCommand(command, false, value)
+    const nextContent = editorRef.current.innerHTML
+    setContent(nextContent)
+    setStatus('Unsaved changes')
+    setIsDirty(true)
+  }
+
+  const handleSave = async () => {
+    setSaving(true)
+    try {
+      const payload = { title, content: sanitizeDocumentText(editorRef.current?.innerHTML ?? content), original_filename: `${(title || 'Untitled document').trim() || 'Untitled document'}.txt` }
+      if (documentId) {
+        const { data } = await axios.patch(`${API_BASE}/documents/${documentId}`, payload)
+        setDocumentId(data.document_id)
+        setTitle(data.title ?? title)
+        setContent(data.content || '')
+        setStatus('Document saved successfully')
+      } else {
+        const { data } = await axios.post(`${API_BASE}/documents/workspace`, payload)
+        setDocumentId(data.document_id)
+        setTitle(data.title ?? title)
+        setContent(data.content || '')
+        setStatus('New document created successfully')
+      }
+      setIsDirty(false)
+    } catch (err: unknown) {
+      setStatus(axios.isAxiosError(err) ? String(err.response?.data?.detail ?? 'Save failed') : 'Save failed')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <Card sx={{ background: whiteTheme.panel, border: `1px solid ${whiteTheme.line}`, boxShadow: whiteTheme.shadow, borderRadius: 3 }}>
+      <CardContent sx={{ p: 3 }}>
+        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 2, flexWrap: 'wrap', mb: 2 }}>
+          <Button variant="outlined" onClick={() => navigate('/documents')} sx={{ textTransform: 'none' }}>Back</Button>
+          <Typography variant='h5' sx={{ color: whiteTheme.text, fontWeight: 700 }}>TraceSeal / Document Workspace</Typography>
+          <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', flexWrap: 'wrap' }}>
+            <Button variant="contained" onClick={handleSave} disabled={saving || loading} sx={{ background: whiteTheme.primary, textTransform: 'none', fontWeight: 700 }}>{saving ? 'Saving...' : 'Save'}</Button>
+            <Button variant="outlined" onClick={() => void generateDocumentPdf(false)} disabled={saving || loading} sx={{ textTransform: 'none' }}>Export PDF</Button>
+            <Button variant="outlined" onClick={() => void generateDocumentPdf(true)} disabled={saving || loading} sx={{ textTransform: 'none' }}>PDF + Upload</Button>
+            <Button variant="outlined" onClick={() => setPreviewMode((current) => !current)} sx={{ textTransform: 'none' }}>{previewMode ? 'Edit' : 'Preview'}</Button>
+          </Box>
+        </Box>
+
+        <Box sx={{ background: whiteTheme.panelAlt, border: `1px solid ${whiteTheme.line}`, borderRadius: 2, p: 1.5, mb: 2 }}>
+          <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap' }}>
+            <Button size="small" onClick={() => applyMarkup('undo')} sx={{ textTransform: 'none' }}>Undo</Button>
+            <Button size="small" onClick={() => applyMarkup('redo')} sx={{ textTransform: 'none' }}>Redo</Button>
+            <Button size="small" onClick={() => applyMarkup('formatBlock', 'h1')} sx={{ textTransform: 'none' }}>H1</Button>
+            <Button size="small" onClick={() => applyMarkup('formatBlock', 'h2')} sx={{ textTransform: 'none' }}>H2</Button>
+            <Button size="small" onClick={() => applyMarkup('formatBlock', 'p')} sx={{ textTransform: 'none' }}>Paragraph</Button>
+            <Button size="small" onClick={() => applyMarkup('bold')} sx={{ textTransform: 'none' }}>B</Button>
+            <Button size="small" onClick={() => applyMarkup('italic')} sx={{ textTransform: 'none' }}>I</Button>
+            <Button size="small" onClick={() => applyMarkup('underline')} sx={{ textTransform: 'none' }}>U</Button>
+            <Button size="small" onClick={() => applyMarkup('insertUnorderedList')} sx={{ textTransform: 'none' }}>List</Button>
+            <Button size="small" onClick={() => applyMarkup('insertOrderedList')} sx={{ textTransform: 'none' }}>Ordered</Button>
+            <Button size="small" onClick={() => applyMarkup('insertHTML', '<table style="width:100%; border-collapse:collapse"><tr><td style="border:1px solid #d7dce7; padding:8px;">Header</td><td style="border:1px solid #d7dce7; padding:8px;">Value</td></tr><tr><td style="border:1px solid #d7dce7; padding:8px;">Alpha</td><td style="border:1px solid #d7dce7; padding:8px;">Beta</td></tr></table>')} sx={{ textTransform: 'none' }}>Table</Button>
+            <Button size="small" onClick={() => { const src = window.prompt('Image URL'); if (src) applyMarkup('insertImage', src) }} sx={{ textTransform: 'none' }}>Image</Button>
+          </Stack>
+        </Box>
+
+        <TextField label="Document title" value={title} onChange={(event) => { setTitle(event.target.value); setIsDirty(true); setStatus('Unsaved changes') }} fullWidth sx={{ mb: 2 }} />
+
+        {previewMode ? (
+          <Box className="trace-document-preview" sx={{ minHeight: 420, p: 2.5, border: `1px solid ${whiteTheme.line}`, borderRadius: 2, background: '#fff', color: whiteTheme.text, direction: 'ltr', textAlign: 'left', userSelect: 'none', WebkitUserSelect: 'none', unicodeBidi: 'plaintext' }} dangerouslySetInnerHTML={{ __html: sanitizeDocumentText(content || '') }} />
+        ) : (
+          <Box
+            ref={editorRef}
+            className="trace-document-editor"
+            contentEditable
+            suppressContentEditableWarning
+            dir="ltr"
+            onPaste={(event) => {
+              const text = event.clipboardData.getData('text/plain')
+              const cleaned = sanitizeDocumentText(text)
+              if (cleaned !== text) {
+                event.preventDefault()
+                document.execCommand('insertText', false, cleaned)
+              }
+            }}
+            onInput={(event) => {
+              const element = event.currentTarget as HTMLDivElement
+              enforceLtrEditor(element)
+              const next = sanitizeDocumentText(element.innerHTML)
+              if (next !== element.innerHTML) {
+                element.innerHTML = next
+              }
+              setContent(next)
+              setStatus('Unsaved changes')
+              setIsDirty(true)
+            }}
+            sx={{ minHeight: 420, p: 2.5, border: `1px solid ${whiteTheme.line}`, borderRadius: 2, background: '#fff', color: whiteTheme.text, outline: 'none', lineHeight: 1.75, direction: 'ltr', textAlign: 'left', userSelect: 'text', WebkitUserSelect: 'text', unicodeBidi: 'plaintext' }}
+          />
+        )}
+
+        <Typography variant="body2" sx={{ mt: 2, color: whiteTheme.subtext }}>Status: {status}</Typography>
+        <Typography variant="caption" sx={{ display: 'block', mt: 1, color: whiteTheme.subtext }}>{documentId ? `Document ID: ${documentId}` : 'New document draft'}</Typography>
+      </CardContent>
+    </Card>
+  )
+}
+
 function DocumentsPage() {
+  const navigate = useNavigate()
   const [documents, setDocuments] = useState<DocumentRecord[]>([])
   const [selectedFile, setSelectedFile] = useState<File | null>(null)
   const [status, setStatus] = useState<string>('No upload yet')
   const [uploading, setUploading] = useState(false)
   const [selectedDocument, setSelectedDocument] = useState<DocumentRecord | null>(null)
   const [documentName, setDocumentName] = useState('')
+  const [distributionInfo, setDistributionInfo] = useState<any[]>([])
 
   const loadDocuments = async () => {
     try {
@@ -190,6 +421,9 @@ function DocumentsPage() {
             <Button variant="outlined" onClick={handleUpload} disabled={uploading || !selectedFile} sx={{ color: whiteTheme.primary, borderColor: whiteTheme.primary, borderRadius: 2, textTransform: 'none', fontWeight: 700 }}>
               {uploading ? 'Uploading...' : 'Upload and Encrypt'}
             </Button>
+            <Button variant="outlined" onClick={() => navigate('/documents/workspace')} sx={{ color: whiteTheme.primary, borderColor: whiteTheme.primary, borderRadius: 2, textTransform: 'none', fontWeight: 700 }}>
+              New document workspace
+            </Button>
           </Box>
           <Typography variant="body2" sx={{ color: whiteTheme.subtext }}>Status: {status}</Typography>
           <Typography variant="body2" sx={{ color: whiteTheme.subtext }}>AES-256-GCM encrypts one document ciphertext. Recipient packages are created separately with ML-KEM-768.</Typography>
@@ -202,7 +436,10 @@ function DocumentsPage() {
                   <Typography variant="body2" sx={{ color: whiteTheme.subtext }}>ID: {doc.document_id}</Typography>
                   <Typography variant="body2" sx={{ color: whiteTheme.subtext }}>Hash: {doc.original_hash ?? 'n/a'}</Typography>
                   <Typography variant="body2" sx={{ color: whiteTheme.subtext }}>Encrypted path: {doc.encrypted_path ?? 'n/a'}</Typography>
-                  <Button size="small" variant="outlined" onClick={() => { setSelectedDocument(doc); setDocumentName(doc.original_filename) }}>Manage</Button>
+                  <Stack direction="row" spacing={1} sx={{ mt: 1 }}>
+                    <Button size="small" variant="outlined" onClick={() => navigate(`/documents/workspace?id=${doc.document_id}`)}>Open editor</Button>
+                    <Button size="small" variant="outlined" onClick={async () => { setSelectedDocument(doc); setDocumentName(doc.original_filename); try { const { data } = await axios.get(`${API_BASE}/documents/${doc.document_id}/packages`); setDistributionInfo(data) } catch { setDistributionInfo([]) } }}>Manage</Button>
+                  </Stack>
                 </CardContent>
               </Card>
             ))}
@@ -210,7 +447,7 @@ function DocumentsPage() {
         </Box>
         <Dialog open={Boolean(selectedDocument)} onClose={() => setSelectedDocument(null)} fullWidth maxWidth="sm">
           <DialogTitle>Manage document</DialogTitle>
-          <DialogContent dividers>{selectedDocument && <Stack spacing={2} sx={{ pt: 1 }}><TextField label="Document filename" value={documentName} onChange={(event) => setDocumentName(event.target.value)} fullWidth /><Typography>ID: {selectedDocument.document_id}</Typography><Typography>Hash: {selectedDocument.original_hash ?? 'n/a'}</Typography><Typography>Encryption: {selectedDocument.encryption_algorithm ?? 'AES-256-GCM'}</Typography><Typography>Watermarked copy: {selectedDocument.watermarked_path ? 'Available' : 'Not created'}</Typography></Stack>}</DialogContent>
+          <DialogContent dividers>{selectedDocument && <Stack spacing={2} sx={{ pt: 1 }}><TextField label="Document filename" value={documentName} onChange={(event) => setDocumentName(event.target.value)} fullWidth /><Typography>ID: {selectedDocument.document_id}</Typography><Typography>Hash: {selectedDocument.original_hash ?? 'n/a'}</Typography><Typography>Encryption: {selectedDocument.encryption_algorithm ?? 'AES-256-GCM'}</Typography><Typography>Watermarked copy: {selectedDocument.watermarked_path ? 'Available' : 'Not created'}</Typography><Box sx={{ mt: 1, p: 1.5, border: `1px solid ${whiteTheme.line}`, borderRadius: 2, background: whiteTheme.panelAlt }}><Typography variant="subtitle2" sx={{ mb: 1, color: whiteTheme.text, fontWeight: 700 }}>Document workspace</Typography>{distributionInfo.length === 0 ? <Typography variant="body2" sx={{ color: whiteTheme.subtext }}>No recipient packages assigned yet.</Typography> : distributionInfo.map((item) => (<Box key={`${item.document_id}-${item.recipient_id}`} sx={{ mb: 1 }}><Typography variant="body2" sx={{ color: whiteTheme.text, fontWeight: 600 }}>{item.recipient_id}</Typography><Typography variant="body2" sx={{ color: whiteTheme.subtext }}>Trace ID: {item.trace_id}</Typography><Typography variant="body2" sx={{ color: whiteTheme.subtext }}>Status: {item.status} · View {item.view_count} · Download {item.download_count}</Typography><Typography variant="body2" sx={{ color: whiteTheme.subtext }}>Permissions: {Object.entries(item.permissions ?? {}).filter(([, value]) => value).map(([permission]) => permission.toUpperCase()).join(', ') || 'None'}</Typography></Box>))}</Box></Stack>}</DialogContent>
           <DialogActions><Button onClick={() => setSelectedDocument(null)}>Cancel</Button><Button variant="contained" onClick={() => { if (!selectedDocument) return; void axios.patch(`${API_BASE}/documents/${selectedDocument.document_id}`, { original_filename: documentName }).then(() => { setStatus('Document updated'); setSelectedDocument(null); return loadDocuments() }).catch((err) => setStatus(axios.isAxiosError(err) ? String(err.response?.data?.detail ?? 'Update failed') : 'Update failed')) }}>Save changes</Button><Button color="error" onClick={() => { if (!selectedDocument) return; void axios.delete(`${API_BASE}/documents/${selectedDocument.document_id}`).then(() => { setSelectedDocument(null); return loadDocuments() }).catch((err) => setStatus(axios.isAxiosError(err) ? String(err.response?.data?.detail ?? 'Delete failed') : 'Delete failed')) }}>Delete document</Button></DialogActions>
         </Dialog>
       </CardContent>
@@ -224,12 +461,159 @@ function DistributionPage() {
   const [documentId, setDocumentId] = useState('')
   const [selected, setSelected] = useState<string[]>([])
   const [status, setStatus] = useState('')
+  const [modalOpen, setModalOpen] = useState(false)
+  const [submitting, setSubmitting] = useState(false)
+  const defaultPermissions = { view: true, download: true, print: false, edit: false, reshare: false }
+  const [draft, setDraft] = useState({
+    permissions: defaultPermissions,
+    expiryMode: 'none',
+    expiryTimestamp: '',
+    downloadMode: 'unlimited',
+    customDownloadLimit: '3',
+    error: '',
+  })
+
   useEffect(() => { void Promise.all([axios.get(`${API_BASE}/documents`), axios.get(`${API_BASE}/recipients`)]).then(([docs, recipientData]) => { setDocuments(docs.data); setRecipients(recipientData.data) }).catch(() => setStatus('Unable to load distribution data.')) }, [])
-  const distribute = async () => {
-    if (!documentId || selected.length === 0) { setStatus('Choose a document and at least one recipient.'); return }
-    try { const { data } = await axios.post(`${API_BASE}/documents/${documentId}/distribution`, { recipient_ids: selected }); setStatus(`Created ${data.packages.length} recipient packages from one ciphertext.`) } catch (err: unknown) { setStatus(axios.isAxiosError(err) ? String(err.response?.data?.detail ?? 'Distribution failed') : 'Distribution failed') }
+
+  const openPermissionDialog = () => {
+    if (!documentId || selected.length === 0) {
+      setStatus('Choose a document and at least one recipient.')
+      return
+    }
+    setDraft({
+      permissions: defaultPermissions,
+      expiryMode: 'none',
+      expiryTimestamp: '',
+      downloadMode: 'unlimited',
+      customDownloadLimit: '3',
+      error: '',
+    })
+    setModalOpen(true)
   }
-  return <Card sx={{ background: whiteTheme.panel, border: `1px solid ${whiteTheme.line}`, boxShadow: whiteTheme.shadow, borderRadius: 3 }}><CardContent sx={{ p: 3 }}><Typography variant="h5" sx={{ mb: 2, color: whiteTheme.text, fontWeight: 700 }}>Distribution</Typography><Stack spacing={2}><Autocomplete options={documents} value={documents.find((doc) => doc.document_id === documentId) ?? null} getOptionLabel={(doc) => `${doc.original_filename} (${doc.document_id})`} onChange={(_, value) => setDocumentId(value?.document_id ?? '')} renderInput={(params) => <TextField {...params} label="Search encrypted documents" />} /><Typography variant="subtitle2">Authorized recipients</Typography><Typography variant="body2" sx={{ color: whiteTheme.subtext }}>Select one or more recipients. One document ciphertext will receive one key package per selected recipient.</Typography>{recipients.map((recipient) => <label key={recipient.recipient_id}><input type="checkbox" checked={selected.includes(recipient.recipient_id)} onChange={(event) => setSelected((current) => event.target.checked ? [...current, recipient.recipient_id] : current.filter((id) => id !== recipient.recipient_id))} /> {recipient.name} ({recipient.recipient_id})</label>)}<Typography variant="body2" sx={{ color: whiteTheme.primary, fontWeight: 700 }}>{selected.length} recipient{selected.length === 1 ? '' : 's'} selected</Typography><Button variant="contained" onClick={distribute} disabled={!documentId || selected.length === 0} sx={{ background: whiteTheme.primary, textTransform: 'none' }}>Create recipient packages</Button>{status && <Typography variant="body2" sx={{ color: whiteTheme.subtext }}>{status}</Typography>}</Stack></CardContent></Card>
+
+  const downloadOptions = [
+    { label: 'Unlimited', value: 'unlimited' },
+    { label: '1', value: '1' },
+    { label: '3', value: '3' },
+    { label: '5', value: '5' },
+    { label: 'Custom', value: 'custom' },
+  ]
+
+  const validateDialog = () => {
+    if (!documentId) return 'Select a document.'
+    if (selected.length === 0) return 'Select at least one recipient.'
+    if (!Object.values(draft.permissions).some(Boolean)) return 'At least one permission must be enabled.'
+    if (draft.expiryMode === 'custom' && (!draft.expiryTimestamp || Number.isNaN(new Date(draft.expiryTimestamp).getTime()))) return 'Choose a valid expiration date and time.'
+    if (draft.downloadMode === 'custom') {
+      const value = Number(draft.customDownloadLimit)
+      if (!Number.isFinite(value) || value <= 0) return 'Enter a valid positive download limit.'
+    }
+    return ''
+  }
+
+  const confirmDistribution = async () => {
+    const error = validateDialog()
+    if (error) {
+      setDraft((current) => ({ ...current, error }))
+      return
+    }
+
+    const payload: Record<string, any> = {
+      recipient_ids: selected,
+      permissions: draft.permissions,
+    }
+
+    if (draft.expiryMode === 'custom' && draft.expiryTimestamp) {
+      payload.expiry_timestamp = new Date(draft.expiryTimestamp).toISOString()
+    }
+
+    if (draft.downloadMode === 'custom') {
+      payload.max_downloads = Number(draft.customDownloadLimit)
+    } else if (draft.downloadMode !== 'unlimited') {
+      payload.max_downloads = Number(draft.downloadMode)
+    }
+
+    setSubmitting(true)
+    try {
+      const { data } = await axios.post(`${API_BASE}/documents/${documentId}/distribution`, payload)
+      const traceIds = data.packages.map((item: any) => item.trace_id).join(', ')
+      setStatus(`Document distributed successfully${traceIds ? `. Trace ID(s): ${traceIds}` : '.'}`)
+      setModalOpen(false)
+    } catch (err: unknown) {
+      setDraft((current) => ({ ...current, error: axios.isAxiosError(err) ? String(err.response?.data?.detail ?? 'Distribution failed. Please try again.') : 'Distribution failed. Please try again.' }))
+      setStatus('Distribution failed. Please try again.')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  return (
+    <Card sx={{ background: whiteTheme.panel, border: `1px solid ${whiteTheme.line}`, boxShadow: whiteTheme.shadow, borderRadius: 3 }}>
+      <CardContent sx={{ p: 3 }}>
+        <Typography variant="h5" sx={{ mb: 2, color: whiteTheme.text, fontWeight: 700 }}>Distribution</Typography>
+        <Stack spacing={2}>
+          <Autocomplete options={documents} value={documents.find((doc) => doc.document_id === documentId) ?? null} getOptionLabel={(doc) => `${doc.original_filename} (${doc.document_id})`} onChange={(_, value) => setDocumentId(value?.document_id ?? '')} renderInput={(params) => <TextField {...params} label="Search encrypted documents" />} />
+          <Typography variant="subtitle2">Authorized recipients</Typography>
+          <Typography variant="body2" sx={{ color: whiteTheme.subtext }}>Select one or more recipients. The permissions below apply to every selected recipient before the document is distributed.</Typography>
+          {recipients.map((recipient) => (
+            <label key={recipient.recipient_id} style={{ display: 'flex', alignItems: 'center', gap: 10, color: whiteTheme.text }}>
+              <input type="checkbox" checked={selected.includes(recipient.recipient_id)} onChange={(event) => setSelected((current) => event.target.checked ? [...current, recipient.recipient_id] : current.filter((id) => id !== recipient.recipient_id))} />
+              <span>{recipient.name} ({recipient.recipient_id})</span>
+            </label>
+          ))}
+          <Typography variant="body2" sx={{ color: whiteTheme.primary, fontWeight: 700 }}>{selected.length} recipient{selected.length === 1 ? '' : 's'} selected</Typography>
+          <Button variant="contained" onClick={openPermissionDialog} disabled={!documentId || selected.length === 0} sx={{ background: whiteTheme.primary, textTransform: 'none' }}>Distribute</Button>
+          {status && <Typography variant="body2" sx={{ color: whiteTheme.subtext }}>{status}</Typography>}
+        </Stack>
+      </CardContent>
+
+      <Dialog open={modalOpen} onClose={() => !submitting && setModalOpen(false)} fullWidth maxWidth="sm">
+        <DialogTitle>Configure document access</DialogTitle>
+        <DialogContent dividers>
+          <Stack spacing={2.5} sx={{ pt: 1 }}>
+            <Typography variant="body2" sx={{ color: whiteTheme.subtext }}>Document: {documents.find((doc) => doc.document_id === documentId)?.original_filename ?? 'n/a'}</Typography>
+            <Typography variant="body2" sx={{ color: whiteTheme.subtext }}>Recipients: {selected.length === 0 ? 'None' : selected.map((recipientId) => recipients.find((recipient) => recipient.recipient_id === recipientId)?.name ?? recipientId).join(', ')}</Typography>
+            <Box>
+              <Typography variant="subtitle2" sx={{ mb: 1, color: whiteTheme.text, fontWeight: 700 }}>Permissions</Typography>
+              <FormGroup>
+                {Object.entries(draft.permissions).map(([key, value]) => (
+                  <FormControlLabel
+                    key={key}
+                    control={<Checkbox checked={Boolean(value)} onChange={(event) => setDraft((current) => ({ ...current, permissions: { ...current.permissions, [key]: event.target.checked } }))} />}
+                    label={key.charAt(0).toUpperCase() + key.slice(1)}
+                  />
+                ))}
+              </FormGroup>
+            </Box>
+            <Box>
+              <Typography variant="subtitle2" sx={{ mb: 1, color: whiteTheme.text, fontWeight: 700 }}>Expiration</Typography>
+              <Select value={draft.expiryMode} onChange={(event) => setDraft((current) => ({ ...current, expiryMode: event.target.value as string }))} fullWidth>
+                <MenuItem value="none">No expiration</MenuItem>
+                <MenuItem value="custom">Set expiration</MenuItem>
+              </Select>
+              {draft.expiryMode === 'custom' && (
+                <TextField type="datetime-local" value={draft.expiryTimestamp} onChange={(event) => setDraft((current) => ({ ...current, expiryTimestamp: event.target.value }))} fullWidth sx={{ mt: 1 }} />
+              )}
+            </Box>
+            <Box>
+              <Typography variant="subtitle2" sx={{ mb: 1, color: whiteTheme.text, fontWeight: 700 }}>Maximum downloads</Typography>
+              <Select value={draft.downloadMode} onChange={(event) => setDraft((current) => ({ ...current, downloadMode: event.target.value as string }))} fullWidth>
+                {downloadOptions.map((item) => <MenuItem key={item.value} value={item.value}>{item.label}</MenuItem>)}
+              </Select>
+              {draft.downloadMode === 'custom' && (
+                <TextField type="number" value={draft.customDownloadLimit} onChange={(event) => setDraft((current) => ({ ...current, customDownloadLimit: event.target.value }))} fullWidth sx={{ mt: 1 }} inputProps={{ min: 1 }} />
+              )}
+            </Box>
+            {draft.error && <Alert severity="error">{draft.error}</Alert>}
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setModalOpen(false)} disabled={submitting}>Cancel</Button>
+          <Button variant="contained" onClick={confirmDistribution} disabled={submitting || !documentId || selected.length === 0} sx={{ background: whiteTheme.primary, textTransform: 'none', fontWeight: 700 }}>{submitting ? 'Confirming...' : 'Confirm Distribution'}</Button>
+        </DialogActions>
+      </Dialog>
+    </Card>
+  )
 }
 
 function DecryptionPage() {
@@ -237,6 +621,72 @@ function DecryptionPage() {
   const [selectedDocumentId, setSelectedDocumentId] = useState('')
   const [result, setResult] = useState<DecryptResult | null>(null)
   const [loading, setLoading] = useState(false)
+  const [securePreviewUrl, setSecurePreviewUrl] = useState<string | null>(null)
+  const [secureBlankScreen, setSecureBlankScreen] = useState(false)
+  const [secureViewerOpen, setSecureViewerOpen] = useState(false)
+  const [copyNotice, setCopyNotice] = useState<string | null>(null)
+  const [watermarkPulse, setWatermarkPulse] = useState(0)
+
+  useEffect(() => {
+    const handleSecurityKeyDown = (event: KeyboardEvent) => {
+      const forbiddenKeys = new Set(['c', 'x', 's', 'p', 'a'])
+      if ((event.ctrlKey || event.metaKey) && forbiddenKeys.has(event.key.toLowerCase())) {
+        event.preventDefault()
+        setCopyNotice('Protected content is copy-disabled and screenshot actions are blocked in this viewer.')
+        setSecureBlankScreen(true)
+        window.setTimeout(() => {
+          setSecureBlankScreen(false)
+          setCopyNotice(null)
+        }, 900)
+      }
+      if (event.key === 'PrintScreen') {
+        event.preventDefault()
+        setCopyNotice('Protected content is copy-disabled and screenshot actions are blocked in this viewer.')
+        setSecureBlankScreen(true)
+        window.setTimeout(() => {
+          setSecureBlankScreen(false)
+          setCopyNotice(null)
+        }, 900)
+      }
+    }
+    const handleWindowBlur = () => setSecureBlankScreen(true)
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'hidden') setSecureBlankScreen(true)
+    }
+    document.addEventListener('keydown', handleSecurityKeyDown)
+    window.addEventListener('blur', handleWindowBlur)
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+    return () => {
+      document.removeEventListener('keydown', handleSecurityKeyDown)
+      window.removeEventListener('blur', handleWindowBlur)
+      document.removeEventListener('visibilitychange', handleVisibilityChange)
+    }
+  }, [])
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setWatermarkPulse((current) => current + 1), 15000)
+    return () => window.clearInterval(timer)
+  }, [])
+
+  useEffect(() => {
+    return () => {
+      if (securePreviewUrl) URL.revokeObjectURL(securePreviewUrl)
+    }
+  }, [securePreviewUrl])
+
+  useEffect(() => {
+    if (!securePreviewUrl) return
+    const timer = window.setTimeout(() => setSecureBlankScreen(false), 1200)
+    return () => window.clearTimeout(timer)
+  }, [securePreviewUrl])
+
+  useEffect(() => {
+    if (secureBlankScreen) {
+      const timer = window.setTimeout(() => setSecureBlankScreen(false), 1200)
+      return () => window.clearTimeout(timer)
+    }
+    return undefined
+  }, [secureBlankScreen])
 
   useEffect(() => {
     const loadDocuments = async () => {
@@ -246,6 +696,38 @@ function DecryptionPage() {
     }
     void loadDocuments()
   }, [])
+
+  const openSecurePreview = async (downloadUrl?: string) => {
+    if (!downloadUrl) return
+    try {
+      const absoluteUrl = downloadUrl.startsWith('http') ? downloadUrl : `${API_BASE}${downloadUrl.replace(/^\/api/, '')}`
+      const response = await axios.get(absoluteUrl, { responseType: 'blob' })
+      const nextUrl = URL.createObjectURL(response.data)
+      setSecurePreviewUrl(nextUrl)
+      setSecureViewerOpen(true)
+      setSecureBlankScreen(false)
+    } catch {
+      setResult({ error: 'Unable to open the protected secure preview.' })
+    }
+  }
+
+  const closeSecurePreview = () => {
+    setSecureViewerOpen(false)
+    setSecureBlankScreen(false)
+    setCopyNotice(null)
+    if (securePreviewUrl) {
+      URL.revokeObjectURL(securePreviewUrl)
+      setSecurePreviewUrl(null)
+    }
+  }
+
+  const watermarkLabels = Array.from({ length: 8 }, (_, index) => {
+    const x = 8 + ((index * 13 + watermarkPulse * 7) % 72)
+    const y = 8 + ((index * 19 + watermarkPulse * 11) % 68)
+    const rotation = -14 + ((index % 3) * 8)
+    const label = result?.watermark_id ? `TraceSeal • ${result.watermark_id}` : 'TraceSeal • Protected document'
+    return { x, y, rotation, label }
+  })
 
   const handleDecrypt = async () => {
     if (!selectedDocumentId) {
@@ -324,17 +806,68 @@ function DecryptionPage() {
                     <Typography variant="body2" sx={{ color: whiteTheme.subtext }}>Document ID: {String(result.document_id ?? 'n/a')}</Typography>
                     <Typography variant="body2" sx={{ color: whiteTheme.subtext }}>Encrypted path: {String(result.encrypted_path ?? 'n/a')}</Typography>
                     <Typography variant="body2" sx={{ color: whiteTheme.subtext }}>Decrypted file: {String(result.plaintext_path ?? 'n/a')}</Typography>
-                    <Typography variant="body2" sx={{ color: whiteTheme.subtext }}>Watermarked copy: {String(result.watermarked_path ?? 'n/a')}</Typography>
-                    <Typography variant="body2" sx={{ color: whiteTheme.subtext }}>Watermark ID: {String(result.watermark_id ?? 'n/a')}</Typography>
+                    <Typography variant="body2" sx={{ color: whiteTheme.subtext }}>Protected copy: {String(result.watermarked_path ?? 'Ready for download')}</Typography>
                     <Typography variant="body2" sx={{ color: whiteTheme.subtext }}>Event ID: {String(result.event_id ?? 'n/a')}</Typography>
                     <Typography variant="body2" sx={{ color: whiteTheme.subtext }}>Decrypted bytes: {String(result.decrypted_bytes ?? 'n/a')}</Typography>
                     <Typography variant="body2" sx={{ color: whiteTheme.subtext }}>SHA3-256: {String(result.sha3_256 ?? 'n/a')}</Typography>
                     {result.download_error && <Typography variant="body2" sx={{ color: whiteTheme.warning }}>{result.download_error}</Typography>}
-                    <Button variant="contained" onClick={() => void downloadCopy()} disabled={!result.watermark_id} sx={{ mt: 1, background: whiteTheme.primary, textTransform: 'none' }}>Download</Button>
+                    <Stack direction="row" spacing={1}>
+                      <Button variant="contained" onClick={() => void downloadCopy()} disabled={!result.watermark_id} sx={{ mt: 1, background: whiteTheme.primary, textTransform: 'none' }}>Download</Button>
+                      <Button variant="outlined" onClick={() => void openSecurePreview(result.download_url)} sx={{ mt: 1, textTransform: 'none' }}>Secure Preview</Button>
+                    </Stack>
                   </Box>
                 )}
               </CardContent>
             </Card>
+          )}
+
+          {securePreviewUrl && secureViewerOpen && (
+            <Box sx={{ position: 'fixed', inset: 0, background: 'rgba(4, 7, 15, 0.96)', zIndex: 1600, p: { xs: 1.5, md: 3 }, display: 'flex', flexDirection: 'column' }}>
+              <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1.5, color: '#ffffff', gap: 2, flexWrap: 'wrap' }}>
+                <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>Protected document viewer</Typography>
+                <Button variant="contained" onClick={closeSecurePreview} sx={{ background: '#ffffff', color: '#111827', textTransform: 'none', fontWeight: 700 }}>Close viewer</Button>
+              </Box>
+
+              <Box sx={{ position: 'relative', flex: 1, overflow: 'hidden', border: '1px solid rgba(255,255,255,0.15)', borderRadius: 2, background: '#ffffff' }}>
+                <Box sx={{ position: 'absolute', inset: 0, pointerEvents: 'none', overflow: 'hidden' }}>
+                  {watermarkLabels.map((item, index) => (
+                    <Typography key={`${item.label}-${index}`} sx={{ position: 'absolute', left: `${item.x}%`, top: `${item.y}%`, transform: `rotate(${item.rotation}deg)`, fontSize: '0.76rem', letterSpacing: '0.12em', fontWeight: 700, color: 'rgba(15, 23, 42, 0.28)', whiteSpace: 'nowrap' }}>
+                      {item.label}
+                    </Typography>
+                  ))}
+                </Box>
+                <iframe
+                  src={securePreviewUrl}
+                  title="Protected document preview"
+                  onContextMenu={(event) => {
+                    event.preventDefault()
+                    setCopyNotice('Copying is disabled for this protected document.')
+                  }}
+                  onCopy={(event) => {
+                    event.preventDefault()
+                    setCopyNotice('Copying is disabled for this protected document.')
+                  }}
+                  onCut={(event) => {
+                    event.preventDefault()
+                    setCopyNotice('Copying is disabled for this protected document.')
+                  }}
+                  style={{ width: '100%', height: '100%', minHeight: '70vh', border: 'none', background: '#ffffff', userSelect: 'none', WebkitUserSelect: 'none', pointerEvents: 'auto' }}
+                />
+              </Box>
+
+              {copyNotice && (
+                <Typography variant="caption" sx={{ display: 'block', mt: 1, color: '#f7d7d7', textAlign: 'center' }}>
+                  {copyNotice}
+                </Typography>
+              )}
+            </Box>
+          )}
+
+          {secureBlankScreen && (
+            <Box sx={{ position: 'fixed', inset: 0, background: '#000000', zIndex: 2000, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#ffffff', flexDirection: 'column', gap: 1 }}>
+              <Typography variant="h6">Protected content hidden</Typography>
+              <Typography variant="body2" sx={{ color: '#d1d5db' }}>Copying and screenshot actions are blocked here.</Typography>
+            </Box>
           )}
         </Box>
       </CardContent>
@@ -838,6 +1371,7 @@ function App() {
           <Routes>
             <Route path="/" element={<Dashboard user={user} />} />
             <Route path="/documents" element={<DocumentsPage />} />
+            <Route path="/documents/workspace" element={<DocumentWorkspacePage />} />
             <Route path="/distribution" element={<DistributionPage />} />
             <Route path="/recipients" element={<RecipientsPage />} />
             <Route path="/decryption" element={<DecryptionPage />} />

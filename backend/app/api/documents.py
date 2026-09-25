@@ -26,10 +26,20 @@ class DecryptRequest(BaseModel):
 
 class DistributionRequest(BaseModel):
     recipient_ids: list[str]
+    permissions: dict[str, bool] | None = None
+    expiry_timestamp: str | None = None
+    max_downloads: int | str | None = None
 
 
 class DocumentUpdateRequest(BaseModel):
-    original_filename: str
+    original_filename: str | None = None
+    title: str | None = None
+    content: str | None = None
+
+
+class RevokeDocumentRequest(BaseModel):
+    reason: str | None = None
+    revoked_by: str | None = None
 
 
 @router.post('/documents/upload')
@@ -54,6 +64,9 @@ def decrypt_document(payload: DecryptRequest, user: dict = Depends(current_user)
                 raise HTTPException(status_code=403, detail='Recipient is not authorized for this package')
         if not recipient_id:
             raise ValueError('Recipient decryption requires a RECIPIENT account linked to a recipient ID. Log out and sign in as the authorized recipient.')
+        view_access = DocumentService.can_access_package(document_id, recipient_id, 'VIEW')
+        if not view_access['allowed']:
+            raise HTTPException(status_code=403, detail='View permission is not granted for this recipient package.')
         package = DocumentService.decrypt_recipient_package(document_id, recipient_id)
         document = DocumentService.get_document(document_id)
         if document is None:
@@ -99,11 +112,38 @@ def decrypt_document(payload: DecryptRequest, user: dict = Depends(current_user)
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
+@router.post('/documents/workspace')
+def create_document_workspace(payload: DocumentUpdateRequest, _: dict = Depends(require_roles('ADMIN', 'SENDER'))):
+    if (payload.title or '').strip() == '' and (payload.original_filename or '').strip() == '':
+        raise HTTPException(status_code=400, detail='Document title is required.')
+    try:
+        document = DocumentService.create_document(
+            title=payload.title or payload.original_filename or 'Untitled document',
+            content=payload.content or '',
+            original_filename=payload.original_filename,
+        )
+        AuditService.record('DOCUMENT_CREATE', actor_id=_['user_id'], subject_id=document['document_id'], details={'title': document['title']})
+        return document
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
 @router.post('/documents/{document_id}/distribution')
 def distribute_document(document_id: str, payload: DistributionRequest, _: dict = Depends(require_roles('ADMIN', 'SENDER'))):
     try:
-        packages = DocumentService.create_recipient_packages(document_id, payload.recipient_ids)
-        AuditService.record('DOCUMENT_ASSIGNMENT', actor_id=_['user_id'], subject_id=document_id, details={'recipients': payload.recipient_ids})
+        packages = DocumentService.create_recipient_packages(
+            document_id,
+            payload.recipient_ids,
+            permissions=payload.permissions,
+            expiry_timestamp=payload.expiry_timestamp,
+            max_downloads=payload.max_downloads,
+        )
+        AuditService.record('DOCUMENT_ASSIGNMENT', actor_id=_['user_id'], subject_id=document_id, details={
+            'recipients': payload.recipient_ids,
+            'permissions': payload.permissions or DocumentService.default_permissions(),
+            'expiry_timestamp': payload.expiry_timestamp,
+            'max_downloads': payload.max_downloads,
+        })
         return {'document_id': document_id, 'packages': packages, 'ciphertext_count': 1}
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -115,10 +155,38 @@ def list_packages(document_id: str, user: dict = Depends(current_user)):
     return DocumentService.list_recipient_packages(document_id=document_id, recipient_id=recipient_id)
 
 
+@router.post('/documents/{document_id}/revoke')
+def revoke_distribution(document_id: str, payload: RevokeDocumentRequest, _: dict = Depends(require_roles('ADMIN', 'SENDER'))):
+    try:
+        if not payload.reason and not payload.revoked_by:
+            payload.reason = 'Access revoked by administrator'
+        packages = DocumentService.list_recipient_packages(document_id=document_id)
+        if not packages:
+            raise ValueError('No active distribution found for this document')
+        revoked = []
+        for package in packages:
+            revoked.append(DocumentService.revoke_distribution(document_id, package['recipient_id'], payload.reason or 'Access revoked by administrator', payload.revoked_by or _['user_id']))
+        AuditService.record('DOCUMENT_REVOKE', actor_id=_['user_id'], subject_id=document_id, details={'reason': payload.reason or 'Access revoked by administrator', 'recipients': [item['recipient_id'] for item in packages]})
+        return {'document_id': document_id, 'revoked': revoked}
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get('/documents/{document_id}/audit')
+def document_audit(document_id: str, _: dict = Depends(require_roles('ADMIN', 'SENDER'))):
+    events = AuditService.list_recent(100)
+    filtered = [event for event in events if str(event.get('details', '')).find(document_id) > -1 or event.get('subject_id') == document_id]
+    packages = DocumentService.list_recipient_packages(document_id=document_id)
+    return {'document_id': document_id, 'packages': packages, 'audit_events': filtered}
+
+
 @router.get('/documents/{document_id}/download')
 def download_watermarked_copy(document_id: str, watermark_id: str, user: dict = Depends(current_user)):
     if user['role'] != 'RECIPIENT' or not user.get('recipient_id'):
         raise HTTPException(status_code=403, detail='Only the authenticated recipient can download a watermarked copy')
+    allowed = DocumentService.can_access_package(document_id, user['recipient_id'], 'DOWNLOAD')
+    if not allowed['allowed']:
+        raise HTTPException(status_code=403, detail='Download permission is not granted for this recipient package.')
     watermark = WatermarkService.get_watermark(watermark_id)
     if watermark is None or watermark['document_id'] != document_id or watermark['recipient_id'] != user['recipient_id']:
         raise HTTPException(status_code=403, detail='Watermark is not assigned to this recipient')
@@ -146,6 +214,9 @@ def get_document(document_id: str, user: dict = Depends(current_user)):
         assigned = DocumentService.list_recipient_packages(document_id=document_id, recipient_id=user.get('recipient_id'))
         if not assigned:
             raise HTTPException(status_code=403, detail='Document is not assigned to this recipient')
+        access = DocumentService.can_access_package(document_id, user['recipient_id'], 'VIEW')
+        if not access['allowed']:
+            raise HTTPException(status_code=403, detail='View permission is not granted for this recipient package.')
     return doc
 
 
@@ -166,6 +237,11 @@ def delete_document(document_id: str, _: dict = Depends(require_roles('ADMIN')))
 @router.patch('/documents/{document_id}')
 def update_document(document_id: str, payload: DocumentUpdateRequest, _: dict = Depends(require_roles('ADMIN'))):
     try:
-        return DocumentService.update_document(document_id, payload.original_filename)
+        return DocumentService.update_document(
+            document_id,
+            original_filename=payload.original_filename,
+            title=payload.title,
+            content=payload.content,
+        )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc

@@ -41,6 +41,8 @@ def init_db() -> None:
     inspector = inspect(engine)
     migrations = {
         'documents': {
+            'title': "VARCHAR(255) NOT NULL DEFAULT 'Untitled document'",
+            'content': "TEXT NOT NULL DEFAULT ''",
             'decrypted_path': 'VARCHAR(512)',
             'watermarked_path': 'VARCHAR(512)',
         },
@@ -56,6 +58,20 @@ def init_db() -> None:
         'decryption_events': {
             'public_key_fingerprint': 'VARCHAR(128)',
             'nonce': "VARCHAR(128) NOT NULL DEFAULT ''",
+        },
+        'recipient_packages': {
+            'trace_id': "VARCHAR(64) NOT NULL DEFAULT ''",
+            'issue_timestamp': "VARCHAR(64) NOT NULL DEFAULT ''",
+            'expiry_timestamp': 'VARCHAR(64)',
+            'permissions': "TEXT NOT NULL DEFAULT '{\"view\": true, \"download\": true, \"print\": false, \"edit\": false, \"reshare\": false}'",
+            'max_downloads': 'INTEGER',
+            'view_count': 'INTEGER NOT NULL DEFAULT 0',
+            'download_count': 'INTEGER NOT NULL DEFAULT 0',
+            'status': "VARCHAR(32) NOT NULL DEFAULT 'ACTIVE'",
+            'revocation_reason': 'TEXT',
+            'revoked_by': 'VARCHAR(64)',
+            'revoked_at': 'VARCHAR(64)',
+            'last_accessed_at': 'VARCHAR(64)',
         },
     }
     with engine.begin() as connection:

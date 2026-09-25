@@ -4,6 +4,7 @@ import os
 import base64
 import json
 import secrets
+from datetime import datetime, timezone
 from pathlib import Path
 from uuid import uuid4
 
@@ -152,12 +153,107 @@ class DocumentService:
         return payload['document_key']
 
     @staticmethod
-    def create_recipient_packages(document_id: str, recipient_ids: list[str]) -> list[dict]:
+    def default_permissions() -> dict[str, bool]:
+        return {'view': True, 'download': True, 'print': False, 'edit': False, 'reshare': False}
+
+    @staticmethod
+    def normalize_permissions(raw: dict | str | None) -> dict[str, bool]:
+        default = DocumentService.default_permissions()
+        if raw is None:
+            return default
+        if isinstance(raw, str):
+            try:
+                payload = json.loads(raw)
+            except (TypeError, ValueError, json.JSONDecodeError):
+                return default
+        else:
+            payload = raw
+        if not isinstance(payload, dict):
+            return default
+        normalized = {str(key).lower(): bool(value) for key, value in payload.items()}
+        for key in default:
+            if key not in normalized:
+                normalized[key] = default[key]
+        default.update(normalized)
+        return default
+
+    @staticmethod
+    def parse_permissions(raw: str | None) -> dict[str, bool]:
+        return DocumentService.normalize_permissions(raw)
+
+    @staticmethod
+    def validate_expiry(expiry_timestamp: str | None) -> str | None:
+        if expiry_timestamp in (None, '', 'none', 'unlimited'):
+            return None
+        value = str(expiry_timestamp).strip()
+        if not value:
+            return None
+        try:
+            parsed = datetime.fromisoformat(value.replace('Z', '+00:00'))
+        except ValueError:
+            raise ValueError('Expiration must be a valid ISO-8601 timestamp.')
+        return parsed.astimezone(timezone.utc).isoformat()
+
+    @staticmethod
+    def sanitize_max_downloads(value: int | str | None) -> int | None:
+        if value in (None, '', 'unlimited', 'none'):
+            return None
+        try:
+            parsed = int(value)
+        except (TypeError, ValueError):
+            raise ValueError('Maximum downloads must be a positive number.')
+        if parsed <= 0:
+            raise ValueError('Maximum downloads must be a positive number.')
+        return parsed
+
+    @staticmethod
+    def generate_trace_id(recipient_id: str) -> str:
+        alphabet = 'ABCDEFGHJKLMNPRSTUVWXYZ23456789'
+        db: Session = SessionLocal()
+        try:
+            while True:
+                candidate = 'TS-' + ''.join(secrets.choice(alphabet) for _ in range(6))
+                exists = db.query(RecipientPackage).filter(RecipientPackage.trace_id == candidate).first()
+                if exists is None:
+                    return candidate
+        finally:
+            db.close()
+
+    @staticmethod
+    def _package_to_dict(package: RecipientPackage) -> dict:
+        return {
+            'package_id': package.package_id,
+            'document_id': package.document_id,
+            'recipient_id': package.recipient_id,
+            'trace_id': package.trace_id,
+            'issue_timestamp': package.issue_timestamp,
+            'expiry_timestamp': package.expiry_timestamp,
+            'permissions': DocumentService.parse_permissions(package.permissions),
+            'max_downloads': package.max_downloads,
+            'view_count': package.view_count,
+            'download_count': package.download_count,
+            'status': package.status,
+            'revocation_reason': package.revocation_reason,
+            'revoked_by': package.revoked_by,
+            'revoked_at': package.revoked_at,
+            'last_accessed_at': package.last_accessed_at,
+            'kem_algorithm': 'ML-KEM-768',
+            'wrapped_key_algorithm': 'AES-256-GCM',
+            'created_at': package.created_at.isoformat() if package.created_at else None,
+        }
+
+    @staticmethod
+    def create_recipient_packages(document_id: str, recipient_ids: list[str], permissions: dict | str | None = None, expiry_timestamp: str | None = None, max_downloads: int | str | None = None) -> list[dict]:
         document = DocumentService.get_document(document_id)
         if document is None:
             raise ValueError('Document not found')
         if not recipient_ids:
             raise ValueError('At least one recipient is required')
+        normalized_permissions = DocumentService.normalize_permissions(permissions)
+        if not any(normalized_permissions.values()):
+            raise ValueError('At least one permission must be enabled on the distribution.')
+        expiry_value = DocumentService.validate_expiry(expiry_timestamp)
+        max_download_limit = DocumentService.sanitize_max_downloads(max_downloads)
         key_hex = DocumentService.get_document_key(document_id)
         if key_hex is None:
             raise ValueError('Document key is not available')
@@ -174,14 +270,16 @@ class DocumentService:
                     RecipientPackage.recipient_id == recipient_id,
                 ).first()
                 if existing is not None:
-                    packages.append({
-                        'package_id': existing.package_id,
-                        'document_id': document_id,
-                        'recipient_id': recipient_id,
-                        'kem_algorithm': 'ML-KEM-768',
-                        'wrapped_key_algorithm': 'AES-256-GCM',
-                        'existing': True,
-                    })
+                    existing.permissions = json.dumps(normalized_permissions, sort_keys=True)
+                    existing.expiry_timestamp = expiry_value
+                    existing.max_downloads = max_download_limit
+                    existing.status = 'ACTIVE'
+                    existing.revocation_reason = None
+                    existing.revoked_by = None
+                    existing.revoked_at = None
+                    package_payload = DocumentService._package_to_dict(existing)
+                    package_payload['existing'] = True
+                    packages.append(package_payload)
                     continue
                 public_keys = json.loads(recipient['public_key'])
                 private_keys = RecipientService.get_private_keys(recipient_id)
@@ -196,17 +294,20 @@ class DocumentService:
                     package_id=f'PKG-{secrets.token_hex(8).upper()}',
                     document_id=document_id,
                     recipient_id=recipient_id,
+                    trace_id=DocumentService.generate_trace_id(recipient_id),
+                    issue_timestamp=datetime.now(timezone.utc).isoformat(),
+                    expiry_timestamp=expiry_value,
+                    permissions=json.dumps(normalized_permissions, sort_keys=True),
+                    max_downloads=max_download_limit,
+                    status='ACTIVE',
                     kem_ciphertext=kem_ciphertext,
                     wrapped_key=base64.b64encode(wrapped).decode('ascii'),
                 )
                 db.add(package)
-                packages.append({
-                    'package_id': package.package_id,
-                    'document_id': document_id,
-                    'recipient_id': recipient_id,
-                    'kem_algorithm': 'ML-KEM-768',
-                    'wrapped_key_algorithm': 'AES-256-GCM',
-                })
+                db.flush()
+                package_payload = DocumentService._package_to_dict(package)
+                package_payload['existing'] = False
+                packages.append(package_payload)
             db.commit()
             return packages
         except Exception:
@@ -225,6 +326,8 @@ class DocumentService:
             ).first()
             if package is None:
                 raise ValueError('No recipient package exists for this document and recipient')
+            if package.status != 'ACTIVE':
+                raise ValueError(f'This distribution is {package.status.lower()} and cannot be used.')
             private_keys = RecipientService.get_private_keys(recipient_id)
             if not private_keys or not private_keys.get('ml_kem_private'):
                 raise ValueError('Recipient private key is unavailable')
@@ -238,7 +341,85 @@ class DocumentService:
             wrapped = base64.b64decode(package.wrapped_key)
             nonce, ciphertext = wrapped[:12], wrapped[12:]
             key = AESGCM(wrapping_key).decrypt(nonce, ciphertext, document_id.encode())
-            return {'key': key, 'package_id': package.package_id}
+            return {'key': key, 'package_id': package.package_id, 'trace_id': package.trace_id}
+        finally:
+            db.close()
+
+    @staticmethod
+    def get_distribution(document_id: str, recipient_id: str) -> dict | None:
+        db: Session = SessionLocal()
+        try:
+            package = db.query(RecipientPackage).filter(
+                RecipientPackage.document_id == document_id,
+                RecipientPackage.recipient_id == recipient_id,
+            ).first()
+            return None if package is None else DocumentService._package_to_dict(package)
+        finally:
+            db.close()
+
+    @staticmethod
+    def get_distribution_by_trace_id(trace_id: str) -> dict | None:
+        db: Session = SessionLocal()
+        try:
+            package = db.query(RecipientPackage).filter(RecipientPackage.trace_id == trace_id).first()
+            return None if package is None else DocumentService._package_to_dict(package)
+        finally:
+            db.close()
+
+    @staticmethod
+    def can_access_package(document_id: str, recipient_id: str, action: str) -> dict:
+        db: Session = SessionLocal()
+        try:
+            package = db.query(RecipientPackage).filter(
+                RecipientPackage.document_id == document_id,
+                RecipientPackage.recipient_id == recipient_id,
+            ).first()
+            if package is None:
+                return {'allowed': False, 'reason': 'not_found', 'document_id': document_id, 'recipient_id': recipient_id}
+            if package.status == 'REVOKED':
+                return {'allowed': False, 'reason': 'revoked', 'document_id': document_id, 'recipient_id': recipient_id, 'trace_id': package.trace_id}
+            if package.expiry_timestamp:
+                try:
+                    expiry = datetime.fromisoformat(package.expiry_timestamp.replace('Z', '+00:00'))
+                    if expiry <= datetime.now(timezone.utc):
+                        package.status = 'EXPIRED'
+                        db.commit()
+                        return {'allowed': False, 'reason': 'expired', 'document_id': document_id, 'recipient_id': recipient_id, 'trace_id': package.trace_id}
+                except ValueError:
+                    pass
+            permissions = DocumentService.parse_permissions(package.permissions)
+            key = action.lower()
+            if key == 'download' and package.max_downloads is not None and package.download_count >= int(package.max_downloads):
+                return {'allowed': False, 'reason': 'download_limit_exceeded', 'document_id': document_id, 'recipient_id': recipient_id, 'trace_id': package.trace_id, 'permissions': permissions, 'max_downloads': package.max_downloads, 'download_count': package.download_count}
+            allowed = bool(permissions.get(key, False))
+            if allowed and key in {'view', 'download'}:
+                if key == 'view':
+                    package.view_count += 1
+                else:
+                    package.download_count += 1
+                package.last_accessed_at = datetime.now(timezone.utc).isoformat()
+                db.commit()
+            return {'allowed': allowed, 'reason': None if allowed else 'permission_denied', 'document_id': document_id, 'recipient_id': recipient_id, 'trace_id': package.trace_id, 'permissions': permissions, 'max_downloads': package.max_downloads, 'download_count': package.download_count}
+        finally:
+            db.close()
+
+    @staticmethod
+    def revoke_distribution(document_id: str, recipient_id: str, reason: str = '', revoked_by: str | None = None) -> dict:
+        db: Session = SessionLocal()
+        try:
+            package = db.query(RecipientPackage).filter(
+                RecipientPackage.document_id == document_id,
+                RecipientPackage.recipient_id == recipient_id,
+            ).first()
+            if package is None:
+                raise ValueError('Distribution not found')
+            package.status = 'REVOKED'
+            package.revocation_reason = reason or 'Access revoked by administrator'
+            package.revoked_by = revoked_by or 'ADMIN'
+            package.revoked_at = datetime.now(timezone.utc).isoformat()
+            db.commit()
+            db.refresh(package)
+            return DocumentService._package_to_dict(package)
         finally:
             db.close()
 
@@ -251,14 +432,7 @@ class DocumentService:
                 query = query.filter(RecipientPackage.document_id == document_id)
             if recipient_id:
                 query = query.filter(RecipientPackage.recipient_id == recipient_id)
-            return [{
-                'package_id': p.package_id,
-                'document_id': p.document_id,
-                'recipient_id': p.recipient_id,
-                'kem_algorithm': 'ML-KEM-768',
-                'wrapped_key_algorithm': 'AES-256-GCM',
-                'created_at': p.created_at.isoformat() if p.created_at else None,
-            } for p in query.order_by(RecipientPackage.id).all()]
+            return [DocumentService._package_to_dict(p) for p in query.order_by(RecipientPackage.id).all()]
         finally:
             db.close()
 
@@ -274,6 +448,8 @@ class DocumentService:
                 {
                     "id": d.id,
                     "document_id": d.document_id,
+                    "title": d.title or 'Untitled document',
+                    "content": d.content or '',
                     "original_filename": d.original_filename,
                     "encrypted_path": d.encrypted_path,
                     "original_hash": d.original_hash,
@@ -297,6 +473,8 @@ class DocumentService:
             return {
                 "id": d.id,
                 "document_id": d.document_id,
+                "title": d.title or 'Untitled document',
+                "content": d.content or '',
                 "original_filename": d.original_filename,
                 "encrypted_path": d.encrypted_path,
                 "original_hash": d.original_hash,
@@ -336,14 +514,40 @@ class DocumentService:
                 Path(raw_path).unlink(missing_ok=True)
 
     @staticmethod
-    def update_document(document_id: str, original_filename: str) -> dict:
-        safe_name = DocumentService._normalize_name(original_filename)
+    @staticmethod
+    def create_document(title: str, content: str, original_filename: str | None = None) -> dict:
+        safe_title = (title or '').strip() or 'Untitled document'
+        safe_name = DocumentService._normalize_name(original_filename or f'{safe_title}.txt')
+        doc_id = f"DOC-{uuid4().hex[:8].upper()}"
+        db: Session = SessionLocal()
+        try:
+            row = Document(
+                document_id=doc_id,
+                title=safe_title,
+                content=(content or '').strip() if content is not None else '',
+                original_filename=safe_name,
+                encrypted_path=None,
+            )
+            db.add(row)
+            db.commit()
+            db.refresh(row)
+            return DocumentService.get_document(doc_id)
+        finally:
+            db.close()
+
+    @staticmethod
+    def update_document(document_id: str, original_filename: str | None = None, title: str | None = None, content: str | None = None) -> dict:
         db: Session = SessionLocal()
         try:
             row = db.query(Document).filter(Document.document_id == document_id).first()
             if row is None:
                 raise ValueError('Document not found')
-            row.original_filename = safe_name
+            if original_filename is not None:
+                row.original_filename = DocumentService._normalize_name(original_filename)
+            if title is not None:
+                row.title = (title or '').strip() or 'Untitled document'
+            if content is not None:
+                row.content = content or ''
             db.commit()
             db.refresh(row)
             return DocumentService.get_document(document_id)
